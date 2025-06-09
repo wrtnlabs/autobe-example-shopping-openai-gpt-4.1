@@ -1,0 +1,324 @@
+/// Board entity - Implements the requirement for custom, configurable forums and engagement spaces per channel/section, as detailed in Section 7 of the requirements. Enables community, Q&A, notices, and specialized content boards tailored by channel/section context. Fully normalized (3NF): all board configuration/settings are refactored into board_config; only references and atomic fields exist in the main board. For example, each product, channel, or section can have multiple distinct boards, each with separate threads and posts. Key relationships: Links to channel and section, has many board_threads, tied to board_config. Special behaviors: Changes to core configuration are version-tracked; deletion is soft by marking deleted_at.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model boards {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for each board.
+  id String @id @db.Uuid
+  
+  /// Channel's {@link channels.id} in which this board operates. Implements multi-tenancy: each board belongs to a channel. Enforces 3NF by not duplicating channel attributes.
+  channel_id String @db.Uuid
+  
+  /// Section's {@link sections.id} where board is displayed. Optional; allows board to exist solely on a channel, or attached to specific store sections. Follows 3NF: references, not duplicates section info.
+  section_id String? @db.Uuid
+  
+  /// Board configuration's {@link board_configs.id}. Allows multiple boards to share or differ in rules/settings. Ensures normalized handling of configs.
+  board_config_id String @db.Uuid
+  
+  /// Board name - Implements requirement for customizable, multilingual board labels. Only atomic data stored.
+  name String
+  
+  /// Short description of board purpose. Used for display and admin management. Ensures normalization by keeping summaries atomic, not concatenated or derived.
+  description String?
+  
+  /// Timestamp when board was created. Implements audit and creation tracking. Example: For display and sorting.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp - Implements audit/compliance requirements. When non-null, board is hidden (not deleted from DB).
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  channel channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  section sections? @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  config board_configs @relation(fields: [board_config_id], references: [id], onDelete: Cascade)
+  
+  board_threads board_threads[]
+  
+  @@index([section_id])
+  @@index([board_config_id])
+  
+  @@unique([channel_id, section_id, name])
+  @@index([created_at])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Board configuration - Implements requirement for configurable board policies (roles, permissions, moderation flags) as per Section 7. All non-atomic/highly variable settings are normalized into this entity. Ensures full 3NF; main board entity does not duplicate settings. For example: read/write permissions, AI moderation settings. Key relationships: referenced by boards. Special behaviors: When config version/revision is updated, boards can reference newer configs.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model board_configs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Config name - Implements admin/designer-readable identifier for this config version. E.g., "Default Board Settings".
+  name String
+  
+  /// JSON-formatted board policy/rule set. Implements flexible, extensible config for board RBAC, moderation, AI flagging, attachment rules, etc. Normalized as atomic string (no derived fields). For example: '{"allow_attachments":true}'
+  settings_json String
+  
+  /// Version number for the settings. Allows precise tracking and rollback. Immutable after creation for full audit/coherence.
+  version Int @db.Integer
+  
+  /// Timestamp config was created. Enables config versioning and audit trail.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  boards boards[]
+  
+  @@unique([name, version])
+}
+
+/// Board thread - Implements the requirement for primary threaded discussions within boards as detailed in Section 7. Each thread represents the top-level container for posts (can be a parent post or initial question in Q&A style). Maintains 3NF by separating posts/threads; all actual content is in board_posts. Example: One thread per discussion, with multiple posts/replies. Key relationships: belongs to board, has many board_posts. Special: deleted_at for audit/soft delete.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model board_threads {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Board's {@link boards.id} which this thread belongs to. Fulfills board-thread hierarchy requirement.
+  board_id String @db.Uuid
+  
+  /// Thread title. Implements requirement for searchable discussion titles. Kept atomic and not duplicated in posts.
+  title String
+  
+  /// When thread was created. For audit, sort, view filtering. Example: Used to show recent discussions.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp. Not actually erased to ensure immutable history/audit.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  board boards @relation(fields: [board_id], references: [id], onDelete: Cascade)
+  
+  board_posts board_posts[]
+  
+  @@unique([board_id, title])
+  @@index([created_at])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Board post - Implements requirement for granular, versioned posts in forums/boards, as described in Section 7. Every post belongs to a thread and optionally a parent (nested replies). Fulfills 3NF by placing all user-generated atomic content in this table. Edits are versioned/snapshotted. Example: Q&A reply, announcement response, threaded comment. Key: Each post ties to author, optionally parent, with markdown/media fields only in attachments or snapshots. Special: soft delete via deleted_at.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model board_posts {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Thread's {@link board_threads.id}. Each post is part of a thread (mandatory). Maintains normalized structure for posts within threads.
+  thread_id String @db.Uuid
+  
+  /// Optional parent post's {@link board_posts.id} for nested replies. Enables reply chains without recursion/duplication. Null for top-level.
+  parent_id String? @db.Uuid
+  
+  /// User's {@link users.id} who authored this post. Ensures all author/user info is referenced, not duplicated. Edge: only for registered users.
+  author_id String @db.Uuid
+  
+  /// Content body - Implements atomic storage of text/markdown, as required. Multimedia is only referenced, not stored. Used by API, search.
+  body String
+  
+  /// When post was made (or versioned). Used for audit/sorting.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft delete; for audit—post hidden but not removed.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  thread board_threads @relation(fields: [thread_id], references: [id], onDelete: Cascade)
+  parent board_posts? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  author users @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  
+  recursive board_posts[] @relation("recursive")
+  
+  @@index([parent_id])
+  @@index([author_id])
+  
+  @@unique([thread_id, created_at, author_id])
+  @@index([created_at])
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Product bulletin post - Implements requirement for dedicated boards per product (e.g., announcements, FAQs). Tightly coupled to product domain & engagement system (Section 7). Ensures all bulletin board fields are atomic, 3NF; links to product, author, can have attachments as separate entities. Example: Seller announces new feature; bulletin about maintenance. Key: references product, author. Special: snapshot relations, only atomic fields included, deleted_at for audit.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_bulletins {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Product's {@link products.id} to which this bulletin applies. Enforces strict linking for product-specific boards.
+  product_id String @db.Uuid
+  
+  /// User's {@link users.id} who posted bulletin. All author info referenced, not duplicated. Seller or admin privilege required.
+  author_id String @db.Uuid
+  
+  /// Bulletin title—atomic, for display/search. For example: "System Maintenance April 2025".
+  title String
+  
+  /// Content body - atomic storage of text/markdown, no formatting or derived/cached fields. Used per compliance and history tracking.
+  body String
+  
+  /// Publishing timestamp. Used for sorting/audit.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp for compliance/immutable history.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  author users @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  
+  @@index([author_id])
+  
+  @@unique([product_id, title])
+  @@index([created_at])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Product review - Implements the review system tied to product snapshots, fulfilling Section 7 requirements for transparent buyer feedback and auditing. Only atomic, non-derived review fields are allowed. Review content and rating are atomic; all references (author, product, product_snapshot) are normalized. Review edits result in new snapshot reviews for audit. Example: Customer leaves rating and markdown review attached to a specific product version. Key: wants verified badge (post-purchase, not in this table). Special: soft delete; attachments in separate table. Strict 3NF—no snapshot/aggregated fields here.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_reviews {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Reviewed product's {@link products.id}. Each review attaches to a product.
+  product_id String @db.Uuid
+  
+  /// Snapshot's {@link product_snapshots.id} being reviewed. Makes historical context immutable.
+  product_snapshot_id String @db.Uuid
+  
+  /// User's {@link users.id} who authored the review. Ensures normalized reference.
+  author_id String @db.Uuid
+  
+  /// Review rating—implements requirement for atomic rating value (e.g., 1-5). Ensures no aggregate/final average is calculated here. Example: Customer rates product 5 stars.
+  rating Int @db.Integer
+  
+  /// Short review headline (optional). For example, "Best Purchase!". Atomic; not derived.
+  title String?
+  
+  /// Review content in markdown. Implements atomic, audit-trail text. Example: Details of user experience.
+  body String
+  
+  /// When review was created (or versioned/audited). Supports audit/history. Not a calculated field.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft delete for auditability and compliance/history. Never actually removed.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  snapshot product_snapshots @relation(fields: [product_snapshot_id], references: [id], onDelete: Cascade)
+  author users @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  
+  product_review_attachments product_review_attachments[]
+  
+  @@index([product_snapshot_id])
+  @@index([author_id])
+  
+  @@unique([product_id, author_id, product_snapshot_id])
+  @@index([created_at])
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Product review attachment - Required by Section 7 for media/files connected to reviews, normalized as M:N linking table (with order support). Ensures review only references attachments, does not duplicate content; each association is atomic. Example: A review includes three photos, ordered for UI display. Key: Link to review and to attachment (image/file asset). Special: attachments refer to separately versioned models, not stored here. 3NF strictly maintained.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_review_attachments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Review's {@link product_reviews.id} this attachment belongs to. Enables linking multiple media per review.
+  review_id String @db.Uuid
+  
+  /// Attachment's {@link attachments.id} being included. Refers to asset table (image/video/file). 3NF compliance—never stored in this table.
+  attachment_id String @db.Uuid
+  
+  /// Order of the attachment per review—supports UI display/ordering. Atomic, used in composite index for review attachment ordering.
+  sequence Int @db.Integer
+  
+  //----
+  // RELATIONS
+  //----
+  review product_reviews @relation(fields: [review_id], references: [id], onDelete: Cascade)
+  attachment attachments @relation(fields: [attachment_id], references: [id], onDelete: Cascade)
+  
+  @@index([attachment_id])
+  
+  @@unique([review_id, attachment_id])
+  @@index([review_id, sequence])
+}
+
+/// Favorite entity - Implements Section 7 requirements for multi-entity bookmarking with snapshot tie-in and notification logic. Strict 3NF: always references entity by id/type and snapshot; all notification logic/events outside. Example: User favorites a product, inquiry, or address. Key: references user, type, entity id, latest snapshot id. Special: If favorited entity changes, notification system triggers via snapshot relink, not here.
+///
+/// @namespace EngagementBoards
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model favorites {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// User's {@link users.id} who marked the favorite. Strict 3NF—no user state duplicated here.
+  user_id String @db.Uuid
+  
+  /// Snapshot's {@link snapshots.id} for the favorited target (product/post/address). Enables immutable notification tie-in by referencing snapshot. Normalization: no cached summary or duplication.
+  entity_snapshot_id String @db.Uuid
+  
+  /// Type of entity favorited (e.g., 'product', 'inquiry', 'address', 'board_post'). String code, atomic field. Example: 'product'.
+  entity_type String
+  
+  /// Raw id of target entity (not a FK for polymorphic support). Atomic; entity-specific data always referenced, never duplicated.
+  entity_id String @db.Uuid
+  
+  /// When favorite was registered. Used for notifications/sorting.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  entity_snapshot snapshots @relation(fields: [entity_snapshot_id], references: [id], onDelete: Cascade)
+  
+  @@index([entity_snapshot_id])
+  
+  @@unique([user_id, entity_type, entity_id])
+  @@index([created_at])
+}

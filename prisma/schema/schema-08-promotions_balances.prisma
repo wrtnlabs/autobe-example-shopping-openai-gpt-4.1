@@ -1,0 +1,451 @@
+/// Coupon entity - This implements the coupon system requirements from section 06 (2. Coupon System Design) of the requirements analysis. 
+///
+/// Business explanation: Represents all created coupons in the system, supporting public, private, and code-based types with channel scoping and basic coupon lifecycle. Maintains 3NF normalization by separating distribution/redemption, associating coupons with channels, and defining business rules externally. For example, public or private coupon creation with metadata.
+///
+/// Key relationships: Linked to channels, coupon rules, and redemptions. Can be associated with products/categories (in other tables). 
+/// Special behaviors: Audit logs cover create/distribute/expire, soft delete, and expiry.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model coupons {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for a coupon.
+  id String @id @db.Uuid
+  
+  /// Channel's {@link channels.id} this coupon belongs to. Implements multi-channel coupon scoping requirement.
+  ///
+  /// Business meaning: Coupons can be scoped to a storefront (channel). Ensures normalization and separation of multi-tenant state.
+  /// E.g., admin creates coupon specific for a channel.
+  channel_id String @db.Uuid
+  
+  /// Coupon code/identifier - Implements requirement of public/private/code-based coupon identification.
+  /// Used for code redemption or campaign mapping. Unique when used as a code-based or limited-use coupon. Maintains atomic, single-value storage.
+  code String?
+  
+  /// Coupon type (public/private/code) - Implements section 2.1 Coupon Types. 
+  /// Indicates business logic for distribution/eligibility. Ensures atomic storage by single choice only.
+  type String
+  
+  /// Admin-facing title for the coupon. Implements display/management/analytics requirements. 
+  /// Single string, normalized, human-readable.
+  title String
+  
+  /// Detailed description, eligibility, or campaign message. Implements marketing/audit requirements. 
+  /// Atomic field, no aggregation or computed content.
+  description String?
+  
+  /// Datetime when coupon is issued. Fulfills audit, expiry, and reporting requirements. Atomic per coupon, never aggregated data.
+  issued_at DateTime @db.Timestamptz
+  
+  /// Datetime when coupon expires. For lifecycle, notification, and compliance. Atomic per coupon.
+  expired_at DateTime? @db.Timestamptz
+  
+  /// Maximum allowed redemptions for this coupon, per system or per user depending on redemption logic. Implements F1/F2 coupon rules. Not pre-aggregated, simply limit for validation logic.
+  max_redemptions Int? @db.Integer
+  
+  /// If coupon can be combined with others. Implements stacking rules in section 2.2. Atomic boolean as eligibility flag.
+  is_stackable Boolean
+  
+  /// Created at timestamp. Immutability for audit logs and compliance. Not pre-aggregated, strictly atomic.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last updated at timestamp for tracking modifications. Atomic per coupon.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp for compliance and GDPR requirements. Atomic, not aggregated.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  channel channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  
+  coupon_rules coupon_rules[]
+  coupon_redemptions coupon_redemptions[]
+  
+  @@unique([code])
+  @@index([channel_id])
+  @@index([expired_at])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Coupon rule entity - Implements coupon eligibility and application requirements (6.2) from section 06. 
+///
+/// Business explanation: Defines business rules and restrictions for applying each coupon, such as min/max spend, allowed products, eligible users, channel/category scoping, AI computed eligibility, and stackability. Maintains 3NF by using a separate entity for flexible/extensible rules, decoupling rules from coupon instances. For example, a coupon valid only for a product category, or only for certain users.
+///
+/// Key relationships: Linked to coupons, channels, categories (other tables), possibly AI eligibility audit later. 
+/// Special behaviors: Rules can be referenced by redemption validation and audited in logs.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model coupon_rules {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for a coupon rule.
+  id String @id @db.Uuid
+  
+  /// Coupon's {@link coupons.id} this rule belongs to. Required for linking to the coupon being described.
+  coupon_id String @db.Uuid
+  
+  /// Minimum order value for rule satisfaction. Implements conditional eligibility. Atomic, non-derived field.
+  min_order_amount Float? @db.DoublePrecision
+  
+  /// Maximum order value for applying this coupon. Atomic per rule, not pre-aggregated.
+  max_order_amount Float? @db.DoublePrecision
+  
+  /// Eligible user type (e.g., registered, guest, new, VIP). Implements targeted rules. Atomic, per rule.
+  eligible_user_type String?
+  
+  /// Eligible channels, as a CSV or JSON if multiple. Maintains atomicity by being a pure mapping reference rather than pre-aggregated query; structurally could later be normalized into a mapping table if many-to-many is realized.
+  eligible_channels String?
+  
+  /// Reference to excluded product categories (CSV/JSON as for eligible_channels; see notes above on normalization; justification for atomic field is requirements for dynamic rules).
+  excluded_categories String?
+  
+  /// Rule start activation datetime for scheduling and eligibility windows. Atomic, never computed.
+  start_at DateTime @db.Timestamptz
+  
+  /// Rule end datetime. Implements expiry window.
+  end_at DateTime? @db.Timestamptz
+  
+  /// Extensible rule configuration json. Implements extensibility for future eligibility or reward logic (see 2.2), atomic by storing unparsed blob.
+  config_json String?
+  
+  //----
+  // RELATIONS
+  //----
+  coupon coupons @relation(fields: [coupon_id], references: [id], onDelete: Cascade)
+  
+  @@index([coupon_id])
+}
+
+/// Coupon redemption entity - Implements audit, assignment, and redemption tracking (section 2.3/2.4/2.5). 
+///
+/// Business explanation: Represents an instance of a coupon issued and/or redeemed by a user. Tracks assignment, claim, usage timestamps, AI fraud check references, and state. Maintains 3NF by not storing aggregate values, only individual redemption events. For example, a user redeeming a coupon for an order tracked individually, not pre-counted totals in this table.
+///
+/// Key relationships: Linked to coupons, users, and possibly AI fraud checks. 
+/// Special behaviors: All actions are audit logged, references to AI fraud outcomes for explainability.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model coupon_redemptions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for a coupon redemption instance.
+  id String @id @db.Uuid
+  
+  /// Coupon's {@link coupons.id} being redeemed or assigned.
+  coupon_id String @db.Uuid
+  
+  /// User's {@link users.id} to whom the coupon was issued or who redeemed it.
+  user_id String @db.Uuid
+  
+  /// Redemption status (e.g., assigned, claimed, redeemed, expired, cancelled). Implements state transition logging. Atomic value, not pre-aggregated.
+  status String
+  
+  /// Timestamp when coupon is assigned to the user (if applicable). For audit and reporting. Atomic, per instance.
+  assigned_at DateTime? @db.Timestamptz
+  
+  /// Timestamp when user claimed the coupon (may differ from redemption). For tracking user flow. Atomic.
+  claimed_at DateTime? @db.Timestamptz
+  
+  /// Timestamp when coupon was redeemed. Main reference for eligibility and analytics. Atomic per redemption.
+  redeemed_at DateTime? @db.Timestamptz
+  
+  /// Timestamp when redemption expired (if unused). For compliance/audit. Atomic.
+  expired_at DateTime? @db.Timestamptz
+  
+  /// Optional reference to AI fraud check outcome on this redemption. Links to fraud_check entity for explainability/audit requirements. Atomic value, references external table.
+  fraud_check_id String? @db.Uuid
+  
+  //----
+  // RELATIONS
+  //----
+  coupon coupons @relation(fields: [coupon_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@unique([coupon_id, user_id])
+  @@index([user_id])
+  @@index([redeemed_at])
+}
+
+/// User balance entity - Implements user balances for deposits, mileage, and promotional points (section 3.1, 3.2).
+///
+/// Business explanation: Maintains segmented balances per user and currency/types, but never pre-aggregated total values for compliance and normalization. Each line is a normalized atomic balance by user/balance type. For example, a user has a cash deposit balance record and a mileage record.
+///
+/// Key relationships: Linked to users. Histories and adjustments are in audit log table. 
+/// Special behaviors: Supports soft deletion and currency context; never pre-computed totals (those in materialized views).
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model user_balances {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for a user balance record.
+  id String @id @db.Uuid
+  
+  /// User's {@link users.id} this balance belongs to. Fulfills multi-balance per user requirement.
+  user_id String @db.Uuid
+  
+  /// Type of balance (deposit, mileage, refund, promotion etc.). Implements multi-segmented balances (F3). Ensures normalization by atomically identifying the balance kind.
+  balance_type String
+  
+  /// Currency code (e.g., USD, KRW) for multi-currency support and atomic storage. Required for compliance/analytics.
+  currency String
+  
+  /// Current balance amount in atomic form. Not pre-aggregated, direct value for a single balance type only.
+  amount Float @db.DoublePrecision
+  
+  /// Created at timestamp, for audit/trail purposes. Atomic per balance row.
+  created_at DateTime @db.Timestamptz
+  
+  /// Updated at timestamp for last modification. Atomic.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deleted timestamp, atomic per row for compliance. Row not deleted.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@unique([user_id, balance_type, currency])
+  @@index([currency])
+}
+
+/// User deposit entity - Implements deposit subsystem, one-time load/reversal of funds (section 3.2). 
+///
+/// Business explanation: Each row is a single deposit event (load, reversal, adjustment). Maintains strict normalization: no pre-aggregated running totals. For example, when a user loads funds, or a reversal is needed, an audit log entry is created and a new row here. 
+///
+/// Key relationships: Linked to users and user_balances for context. 
+/// Special behaviors: Audit log entry per event; refunds/nested reversals handled externally.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model user_deposits {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for a deposit event.
+  id String @id @db.Uuid
+  
+  /// User's {@link users.id} deposit is attached to. Ensures user tracking, no duplication.
+  user_id String @db.Uuid
+  
+  /// Deposit value, atomic for a single load/reversal event. No computation across records.
+  amount Float @db.DoublePrecision
+  
+  /// Type (load, reversal, adjustment), atomic and keeps event atomicity.
+  deposit_type String
+  
+  /// Deposit event status (pending, completed, failed), atomic field.
+  status String
+  
+  /// Currency code for deposit. Ensures currency normalization.
+  currency String
+  
+  /// Created timestamp (audited).
+  created_at DateTime @db.Timestamptz
+  
+  /// Last updated timestamp. For operational audits.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deleted timestamp, for compliance, not delete.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  @@index([deposit_type])
+}
+
+/// User mileage entity - Implements mileage/points earning and redemption subsystem (section 3.2).
+///
+/// Business explanation: Each entry tracks a single earn or redemption event, normalized and granular. For example, if a user earns points by purchase, or redeems mileage, or receives a bonus—the event is atomic/row based. Not pre-aggregated. 
+///
+/// Key relationships: Linked to users; audit/history in balance_audit_log.
+/// Special behaviors: Only event information, totals/inferences go to materialized views.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model user_mileages {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for a mileage event row.
+  id String @id @db.Uuid
+  
+  /// User's {@link users.id}. Fulfills per-user tracking, normalized.
+  user_id String @db.Uuid
+  
+  /// Type (earn, redeem, bonus, expire) for the event; atomic. Business requirement for separate event audit trail.
+  mileage_type String
+  
+  /// Amount earned/redeemed, always atomic per event.
+  amount Float @db.DoublePrecision
+  
+  /// Description or reference. For audit/analytics/notes. Not derived, direct input.
+  description String?
+  
+  /// Event status (pending, completed, expired, revoked). For compliance/audit; atomic only.
+  status String
+  
+  /// Event creation timestamp, atomic.
+  created_at DateTime @db.Timestamptz
+  
+  /// Event soft deletion timestamp, atomic per row.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  @@index([mileage_type])
+}
+
+/// Balance audit log entity - Implements audit/event tracking of all changes to user balances/deposits/mileage for full compliance (section 3.1/3.4, 4.2).
+///
+/// Business explanation: Every change to user balance of any kind is recorded as an atomic, immutable event, not pre-aggregated. For example, credits, debits, expiration, admin adjustments, etc. Each row is a single event. Supports full traceability and legal requirement for immutable logs.
+///
+/// Key relationships: Linked to users, can reference other models as event context. 
+/// Special behaviors: All events are soft-deletable; events drive audit exports/reports.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model balance_audit_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique ID for a balance audit entry.
+  id String @id @db.Uuid
+  
+  /// User's {@link users.id}. Event applies to this user.
+  user_id String @db.Uuid
+  
+  /// Type of event: credit, debit, expire, adjustment etc. For traceability/audit. Atomic.
+  event_type String
+  
+  /// Change value for the event, atomic per row.
+  amount Float @db.DoublePrecision
+  
+  /// Balance type affected (deposit/mileage/refund). For reporting/compliance, normalization ensured.
+  balance_type String
+  
+  /// Reference to related event (e.g., deposit ID, mileage ID, external ref). Not derived, atomic by direct string/link.
+  event_ref String?
+  
+  /// Descriptive notes. For audit/reporting. Direct not computed.
+  description String?
+  
+  /// Timestamp of event log entry.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  @@index([balance_type])
+}
+
+/// Refund entity - Implements refund subsystem, supporting user-initiated, admin, or automated refunds with compliance, workflow, and audit needs (sections 3.3, 3.4, 4.2, 4.4).
+///
+/// Business explanation: Each refund is a single atomic event: user- or system-driven, tracked for status, method, legal region, and references to order or payment. For example, a refund issued as deposit, to card, or as donation. Maintains strict 3NF.
+///
+/// Key relationships: Linked to users; can reference order/payment models (in other files); region/legal handled in extra fields.
+/// Special behaviors: Audit logs, soft delete, and region policy compliance maintained.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model refunds {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique ID for a refund row.
+  id String @id @db.Uuid
+  
+  /// User's {@link users.id}. Refund relates to this user. Atomic, compliance-required.
+  user_id String @db.Uuid
+  
+  /// Refunded amount, atomic, no computations here. Not derived, per row event.
+  refund_amount Float @db.DoublePrecision
+  
+  /// Refund method (deposit, card, etc.) Ensures business logic for legal compliance. Atomic per row.
+  refund_method String
+  
+  /// Refund event status (pending, completed, failed). Required for workflow, atomic only.
+  status String
+  
+  /// Legal/jurisdiction region for compliance. Required in global/compliance scenarios. Atomic, not computed.
+  legal_region String?
+  
+  /// Created at timestamp. For audit/compliance.
+  created_at DateTime @db.Timestamptz
+  
+  /// Updated at timestamp for last modification/checks. Not derived, per record.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft-deleted at timestamp for GDPR/compliance. Atomic, not computed.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+}
+
+/// Donation entity - Implements donation requirements for refunds as donations (section 3.3, 3.4).
+///
+/// Business explanation: When a user requests/approves a refund to be donated (e.g., to a configured non-profit), this entity logs the atomic donation event and status. Maintains 3NF by single event, never totals. For example: refund converted to donation processed and audited individually.
+///
+/// Key relationships: Linked to users; can reference refund or other receipt as event_ref. 
+/// Special behaviors: Fully traceable for compliance/auditing.
+///
+/// @namespace PromotionsBalances
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model donations {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for a donation row.
+  id String @id @db.Uuid
+  
+  /// User's {@link users.id}. Donor for the donation. Fulfills atomic per event rule.
+  user_id String @db.Uuid
+  
+  /// Amount donated by user. Atomic, not pre-calculated.
+  donation_amount Float @db.DoublePrecision
+  
+  /// Target recipient (non-profit etc.). Implements business logic for target tracking. Atomic.
+  donation_target String
+  
+  /// Donation event status (pending, completed, cancelled etc.). Atomic, no derived statuses.
+  status String
+  
+  /// Reference to upstream refund or event, atomic (not computed, must link audit/log purposes).
+  event_ref String?
+  
+  /// Created at timestamp, for audit/log.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+}

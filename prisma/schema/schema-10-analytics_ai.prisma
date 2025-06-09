@@ -1,0 +1,323 @@
+/// [Analytics Dashboard] - This implements the requirement 'Dashboards: Role-specific access to sales, LTV, funnel, and segmentation metrics; Customizable, real-time visualization, exportable.' from 'AI/ML, Analytics & Future-readiness'.
+///
+/// This model allows for defining analytic dashboards, each representing a configurable set of metrics and visualizations for users, sellers, or admins. Maintains 3NF compliance by separating dashboard metadata/configuration from metric data. For example, an admin can configure multiple dashboards for different teams or purposes, each with different metric sets and filters.
+///
+/// Key relationships: Tied to analytics_metric and metric_export; can be configured per-owner (user/admin/seller) via appropriate assignments.
+/// Special behaviors: Dashboards are versionable, soft-deletable, and exportable. Access controlled via RBAC and audit-logged.
+///
+/// @namespace AnalyticsAI
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model analytics_dashboard {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// [Dashboard name] - Implements analytic/reporting configuration naming. Human-friendly title, e.g. 'Sales Overview', to identify the dashboard in UI and exports. Ensures normalization by keeping display info atomic.
+  name String
+  
+  /// [Dashboard description] - Implements dashboard documentation/clarity. A longer description of what the dashboard covers/presents. Atomic for 3NF compliance.
+  description String?
+  
+  /// [Dashboard configuration] - Implements layout/filter/permission configs as serialized JSON. Stores all dashboard setup (filters, widget orders, access permissions) in an atomic text blob (for normalization).
+  configuration String
+  
+  /// [Owner type] - Specifies whether the dashboard is for 'user', 'admin', or 'seller' context. Supports multi-tenancy; strictly atomic as per normalization.
+  owner_type String
+  
+  /// [Owner ID] - ID of the owner (user/admin/seller), references external identity but not a direct FK (normalization for multi-type ownership and avoiding polymorphic FK). Maintains 3NF by preventing mixed dependencies; pattern allows flexible assignment.
+  owner_id String @db.Uuid
+  
+  /// [Creation timestamp] - Implements auditability (requirement: all changes auditable). Exact time of creation. Atomic, non-nullable.
+  created_at DateTime @db.Timestamptz
+  
+  /// [Last update time] - Implements audit trail. Time of last modification of dashboard configuration. Atomic, non-nullable.
+  updated_at DateTime @db.Timestamptz
+  
+  /// [Soft deletion timestamp] - Implements soft deletion (compliance; no hard delete per requirements). Null when active; sets when deleted. Maintains normalization, enabling proper auditability.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  metric_export metric_export[]
+  
+  @@unique([name, owner_type, owner_id])
+  @@index([owner_type, owner_id])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// [Analytics Metric] - This implements the requirement 'Metrics: Real-time metrics for dashboards; fully auditable.' from 'AI/ML, Analytics & Future-readiness'.
+///
+/// Represents a single analytic metric, such as sales, LTV, conversion rate, etc. Metrics are atomic, and dashboard-metric assignment is handled in dashboard configuration (to decouple dependencies, preserving 3NF).
+///
+/// Key relationships: Referenced from dashboards, used in metric exports. Not FKed to dashboard for flexible multi-assignment.
+/// Special behaviors: Metric source/logic are describable for auditability. Metrics can be updated or deprecated while keeping dashboards intact.
+///
+/// @namespace AnalyticsAI
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model analytics_metric {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// [Metric name] - Implements the requirement for human-friendly reporting. E.g. 'Total Sales', 'Avg LTV'. Atomic, non-nullable.
+  name String
+  
+  /// [Metric description] - Longer description (purpose, calculation logic, business intent). Ensures normalization since each metric is atomic.
+  description String?
+  
+  /// [Metric source] - Records data origin (table, query, or external API ref). Eases traceability and audit. Normalized to avoid data duplication.
+  source String
+  
+  /// [Metric data type] - Specifies kind (int/double/string/datetime/etc.) for rendering and aggregation. Forces atomic storage and audit.
+  data_type String
+  
+  /// [Creation time] - Audit trail; metric creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// [Last update] - Audit trail; last update timestamp.
+  updated_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  @@unique([name])
+  @@index([source])
+}
+
+/// [Metric Export] - Implements 'Metric export: exportable dashboards, aggregated metric outputs with audit trail/export format', 'AI/ML, Analytics & Future-readiness'.
+///
+/// Each export represents a historical export or download (CSV/JSON/PDF) run of dashboard data. Keeps full auditability and normalization by tracking exports as atomic events. Includes reference to dashboard + configuration at export time and export file location.
+///
+/// Key relationships: FK to dashboard; can be joined with analytics_metric via dashboard config at time-of-export.
+/// Special behaviors: Exports are immutable (no update), soft-deletable.
+///
+/// @namespace AnalyticsAI
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model metric_export {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// [Dashboard reference] - Dashboard’s {@link analytics_dashboard.id}. Links this export event to the related dashboard. Not unique; multiple exports per dashboard allowed.
+  dashboard_id String @db.Uuid
+  
+  /// [Export format] - CSV/JSON/PDF/etc. Implements API/support for exportable analytics. Atomic for normalization.
+  export_format String
+  
+  /// [Export configuration] - Retains export setup (e.g., filters, metric set, user context) at point-of-export. Ensures auditability, atomic.
+  configuration String
+  
+  /// [Export file URL] - Secure URI for download of the export artifact. Maintains normalization, supports audit.
+  export_file_url String @db.VarChar(80000)
+  
+  /// [Export time] - When the export action was performed. For audit, non-nullable.
+  export_time DateTime @db.Timestamptz
+  
+  /// [Requested by] - ID of user/admin who triggered export (not direct FK; allows multi-type ref). Maintains normalization.
+  requested_by String @db.Uuid
+  
+  /// [Soft delete timestamp] - Implements audit, soft deletion of exports. Nullable. Ensures auditability (never hard-delete).
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  dashboard analytics_dashboard @relation(fields: [dashboard_id], references: [id], onDelete: Cascade)
+  
+  @@index([dashboard_id])
+}
+
+/// [Recommendation] - Implements 'Recommendation Engine: personalized product recommendations via AI API; configurable per channel, user.' from 'AI/ML, Analytics & Future-readiness'.
+///
+/// Represents a recommendation generated by the AI module for a particular user (or segment), referencing an AI provider and optionally the applied logic snapshot. Cleanly normalized: each recommendation is one prediction/action result, not a denormalized batch. Product(s) recommended are referenced externally (not embedded arrays) to preserve 3NF.
+///
+/// Key relationships: FK to AI Provider and user; can reference logic snapshot or inference metadata.
+/// Special behaviors: Recommendations are immutable once created, fully auditable for compliance.
+///
+/// @namespace AnalyticsAI
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model recommendation {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// [AI provider ref] - AI provider’s {@link ai_provider.id}. Which AI system generated this recommendation. Not unique, required FK.
+  ai_provider_id String @db.Uuid
+  
+  /// [User reference] - User’s {@link users.id}. User this recommendation is for. Not unique.
+  user_id String @db.Uuid
+  
+  /// [Recommendation type] - E.g. product, coupon, bundle, etc. Atomic, normalizes what is being recommended.
+  recommendation_type String
+  
+  /// [Target entity ID] - ID of the recommended entity (e.g. product). Not a FK to maximize flexibility, as IDs may come from external or partitioned domains.
+  target_entity_id String @db.Uuid
+  
+  /// [Metadata] - JSON blob with extra details, such as inference snapshot ID, scoring, algorithm context. For extensible, non-relational data.
+  metadata String?
+  
+  /// [Generated at] - When this recommendation was produced. For end-to-end auditability.
+  generated_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  ai_provider ai_provider @relation(fields: [ai_provider_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([ai_provider_id])
+  
+  @@index([user_id, generated_at])
+}
+
+/// [Fraud Check] - Implements 'FraudCheck: AI/ML-powered transactional risk scoring, anomaly detection, explainable audit trail.'
+///
+/// Represents an AI-driven fraud check/risk assessment event, e.g. performed during order, cart, or refund. Fully normalized: every check is a discrete record (not aggregated in regular table). Results, AI rationales, and explainability are included as atomic fields.
+///
+/// Key relationships: FK to AI Provider, user (who triggered/subject), and possibly to target order/cart/etc via IDs.
+/// Special behaviors: Record is immutable once performed, all explainability output is kept as atomic data for compliance.
+///
+/// @namespace AnalyticsAI
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model fraud_check {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// [AI provider ref] - AI provider’s {@link ai_provider.id}. Links this fraud check to a specific AI engine or logic.
+  ai_provider_id String @db.Uuid
+  
+  /// [User reference] - References {@link users.id}. Person or system who triggered or was subject to this check. Not unique.
+  user_id String @db.Uuid
+  
+  /// [Target type] - What entity is being checked (order, cart, refund, etc). Normalization: atomic type field.
+  target_type String
+  
+  /// [Target ID] - ID of the entity being checked (order, cart, refund, etc). Not a FK to allow cross-domain referencing. Atomic for 3NF.
+  target_id String @db.Uuid
+  
+  /// [Risk score] - Calculated risk (0-1 for ML, or domain-specific). Atomic numeric (3NF).
+  risk_score Float @db.DoublePrecision
+  
+  /// [Explanation] - Explainable AI output; why was this flagged/passed? Ensures auditability and explainability. Atomic as per 3NF.
+  explanation String
+  
+  /// [Checked at] - Timestamp when the fraud check occurred. Required for audit log compliance.
+  checked_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  ai_provider ai_provider @relation(fields: [ai_provider_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([ai_provider_id])
+  
+  @@index([user_id, checked_at])
+}
+
+/// [AI Provider] - Implements 'AI Provider: Modular API-driven intelligence components and provider mapping.'
+///
+/// Represents an AI or ML system that delivers intelligence for analytics, recommendation, fraud, etc. Abstracts provider details for modular plug-in support. Each provider is an atomic record; any contract/configuration is in the metadata.
+///
+/// Key relationships: Referenced by recommendation, fraud_check, ai_log. Enables modular AI extensibility.
+/// Special behaviors: Providers can be inactive or deprecated, but never deleted for compliance history.
+///
+/// @namespace AnalyticsAI
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_provider {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// [Provider name] - Human-friendly unique name, e.g. 'OpenAI', 'InHouseAI', used for admin config and traceability. 3NF enforced by uniqueness.
+  name String
+  
+  /// [Provider type] - e.g. 'recommendation', 'fraud_detection', 'analytics'. Atomic identifier for normalization.
+  provider_type String
+  
+  /// [API endpoint] - Primary endpoint for API integration, or admin UI. Atomic URI (3NF).
+  api_endpoint String @db.VarChar(80000)
+  
+  /// [Provider metadata] - JSON metadata/configuration, such as tokens, version, docs. Atomic text for normalization.
+  metadata String?
+  
+  /// [Active] - Is the provider available for service assignments? Ensures system auditability. 3NF: explicit, modifiable flag.
+  active Boolean
+  
+  /// [Created at] - Audit trail; creation timestamp. Atomic.
+  created_at DateTime @db.Timestamptz
+  
+  /// [Updated at] - Audit trail; last update timestamp. Atomic.
+  updated_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  recommendation recommendation[]
+  fraud_check fraud_check[]
+  ai_log ai_log[]
+  
+  @@unique([name])
+}
+
+/// [AI Log] - Implements 'Auditability: AI module access and output, full logging/audit trail, compliance.'
+///
+/// Each AI interaction (input/request or output/event) is logged for audit and compliance needs. These are strictly atomic per access/event. Sensitive data may be masked per compliance logic (field-level masking rules enforced externally).
+///
+/// Key relationships: FK to ai_provider and user (initiator/subject if user-driven). Can be filtered/audited by provider, user, event type, or time.
+/// Special behaviors: Immutable, non-updatable for strict audit trail. Potential for very high volume (requires scalable storage logic off-table for large logs).
+///
+/// @namespace AnalyticsAI
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_log {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// [AI provider ref] - FK to {@link ai_provider.id}. Specifies which AI system was used in this event. Required, not unique.
+  ai_provider_id String @db.Uuid
+  
+  /// [User reference] - FK to {@link users.id}. Who initiated or accessed this AI operation. Not unique/required (could be system-initiated).
+  user_id String? @db.Uuid
+  
+  /// [Event type] - Distinguishes 'input', 'output', 'error', 'callback', etc. Atomic (3NF).
+  event_type String
+  
+  /// [Event time] - Timestamp for this AI event. Required for chronological audit. 3NF enforced.
+  event_time DateTime @db.Timestamptz
+  
+  /// [Request payload] - (Optionally masked) input/request data. Large/complex data may be summarized for audit export. 3NF: required field kept atomic, excess data externalized when necessary.
+  request_payload String?
+  
+  /// [Response payload] - (Optionally masked) output/response data. Storage of AI outcome, prediction, etc. Atomic and normalized.
+  response_payload String?
+  
+  /// [Status] - 'success', 'failure', 'audit', etc. Indicates outcome of event. Enforces atomicity/best practices.
+  status String
+  
+  //----
+  // RELATIONS
+  //----
+  ai_provider ai_provider @relation(fields: [ai_provider_id], references: [id], onDelete: Cascade)
+  user users? @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  
+  @@index([ai_provider_id, event_time])
+}

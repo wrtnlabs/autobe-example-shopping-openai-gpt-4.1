@@ -1,0 +1,323 @@
+/// Channel entity - This implements the multi-site/storefront segregation requirement from 'Core System Concepts' (Section 2.1, Overview and Objectives). 
+///
+/// Represents a logical business boundary such as a storefront, brand, or marketplace instance; provides the root container for all product, category, and configuration data. Fully normalized: all non-key attributes are atomic and associated only to the primary key (no redundancy). For example, 'MegaMall US' and 'MegaMall EU' are different channels with custom catalogs and settings.
+///
+/// Key relationships: sections, categories, and AI hooks reference channel. Special behaviors: Channel enables multi-tenancy, isolated configurations, and access separation.
+///
+/// @namespace Core
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model channels {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identity for each channel.
+  id String @id @db.Uuid
+  
+  /// Channel code - Implements unique identification. 
+  ///
+  /// Short, system-wide unique code. Used for referencing and API keys. 3NF: No partial dependencies, no redundancy. Example: 'us_store', 'eu_mega'.
+  code String
+  
+  /// Display name - Implements requirement for human-readable labeling. 
+  ///
+  /// End-user visible channel name. For example: 'MegaMall USA'. Ensures normalization: only present in the root channel; not in sub-entities.
+  name String
+  
+  /// Optional description for the channel - Provides administrative metadata. 
+  ///
+  /// Nullable; used for admin help, onboarding, and system notes. No impact on normalization.
+  description String?
+  
+  /// Creation timestamp - Implements auditability. 
+  ///
+  /// Tracks when channel is created. For compliance/history. 3NF: tied only to channel identity.
+  created_at DateTime @db.Timestamptz
+  
+  /// Updated timestamp - Implements tracking of lifecycle changes.
+  ///
+  /// Updated on any administrative or config change. For example: updating branding, adding section. 3NF: fully dependent on PK.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp - Implements soft-delete (Business/Compliance/Security requirement). 
+  ///
+  /// Retains legal/audit history without destructive deletes. Nullable; set when a channel is logically deleted. Not physically removed. 3NF compliant.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  sections sections[]
+  categories categories[]
+  ai_hooks ai_hooks[]
+  seller_channel_assignments seller_channel_assignments[]
+  products products[]
+  product_seo_metas product_seo_metas[]
+  tags tags[]
+  boards boards[]
+  orders orders[]
+  payments payments[]
+  coupons coupons[]
+  notifications notifications[]
+  notification_templates notification_templates[]
+  notification_preferences notification_preferences[]
+  localization_files localization_files[]
+  
+  @@unique([code])
+  @@index([created_at])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Section entity - Implements dynamic store organization requirement from 'Core System Concepts' (Section 2.2) and Structure/Scale/Integration.
+///
+/// Atomic grouping of content/catalog units within a channel (e.g., 'Home Banner', 'Flash Sale Area'). Normalized: all configuration is section-local; no redundant data. Example: 'Homepage Featured', 'Clearance'.
+///
+/// Key relationships: belongs to channel. Special behaviors: modifying section structure is logged/auditable.
+///
+/// @namespace Core
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model sections {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Section identity.
+  id String @id @db.Uuid
+  
+  /// Owning channel's {@link channels.id}. Channel for this section.
+  channel_id String @db.Uuid
+  
+  /// Section code - Implements unique identification within a channel.
+  ///
+  /// Atomic code, unique per channel. Example: 'frontpage', 'flash_deals'. 3NF: No redundancy.
+  code String
+  
+  /// Display name - Implements channel-local visibility.
+  ///
+  /// End-user visible label. Example: 'Homepage Banners.' 3NF compliant.
+  name String
+  
+  /// Display order - Implements flexible storefront layout.
+  ///
+  /// Controls appearance order/priority within channel. Atomic and PK-dependent.
+  order Int @db.Integer
+  
+  /// JSON-encoded configuration - Implements section customization requirement.
+  ///
+  /// Serialized (but atomic per row) configuration, modifiable only in section. 3NF: full dependency.
+  /// Example: '{"maxProducts":8}'.
+  config String?
+  
+  /// Audit: creation timestamp. Atomic, immutable. Tied to PK.
+  created_at DateTime @db.Timestamptz
+  
+  /// Audit: last updated timestamp. Fully dependent on PK.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp. Nullable; preserved for compliance/audit use.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  channel channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  
+  boards boards[]
+  
+  @@unique([channel_id, code])
+  @@index([channel_id, order])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Category entity - Implements channel-scoped hierarchical taxonomy from 'Core System Concepts' (Section 2.3, Product Domain).
+///
+/// Atomic representation of category (e.g., 'Shoes', 'Men/Sneakers'). Belongs to a channel, can nest by parent_id supporting unlimited depth. Normalized: parent_id is nullable for root; all descriptive attributes reference only PK. Example: 'Apparel > Shoes > Running'.
+///
+/// Key relationships: allowed recursion (parent_id), channel reference. Special: all product/category assignments are in join tables elsewhere.
+///
+/// @namespace Core
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model categories {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identity for category.
+  id String @id @db.Uuid
+  
+  /// Owning channel's {@link channels.id}. Channel for this category.
+  channel_id String @db.Uuid
+  
+  /// Parent category (self-reference) {@link categories.id}. Null for root node.
+  parent_id String? @db.Uuid
+  
+  /// Category code - Required, unique (per channel/parent) identifier. Example: 'mens_sneakers', 'clearance'.
+  code String
+  
+  /// Display name - End-user visible. Example: 'Men's Sneakers'. Fully dependent on PK.
+  name String
+  
+  /// Optional description. For search/SEO/UX. Example: 'Category for all men's athletic shoes.'
+  description String?
+  
+  /// Display ordering - Controls sort within parent. PK-dependent.
+  order Int @db.Integer
+  
+  /// Audit: time of creation. For compliance/history.
+  created_at DateTime @db.Timestamptz
+  
+  /// Audit: last update timestamp.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp. Marked for legal compliance/lifecycle management.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  channel channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  parent categories? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  
+  recursive categories[] @relation("recursive")
+  product_category_assignments product_category_assignments[]
+  
+  @@index([parent_id])
+  
+  @@unique([channel_id, parent_id, code])
+  @@index([channel_id, parent_id, order])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Attachment entity - Implements the secure versioned attachment system from 'Structure, Scale & Integration' and Board/Product Domain requirements.
+///
+/// Represents any file (image, doc, video) usable system-wide: product images, banners, board files. All metadata atomic, no denormalized/cached data. Soft deletion supported, legal compliance (access logs attached in separate table). Example: product media stored as attachments, referenced by join tables.
+///
+/// Key relationships: assigned to product, board, review by join tables elsewhere. Special: CDN integration, access tracked not here but in associated log.
+///
+/// @namespace Core
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model attachments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identity for each attachment file.
+  id String @id @db.Uuid
+  
+  /// Original file name without extension. Example: 'photo1', 'banner'. Atomic and unique per upload.
+  filename String
+  
+  /// File extension, e.g., 'jpg', 'pdf'. Null for extensionless files like 'README'.
+  extension String?
+  
+  /// Secure CDN/object storage URL for file delivery. Only atomic pointers, not cached content. Example: 'https://cdn.site/file.jpg'.
+  url String @db.VarChar(80000)
+  
+  /// MIME type (e.g., 'image/jpeg'). For content negotiation and validation.
+  mime_type String
+  
+  /// File size in bytes. Used for quota and validation. Atomic, PK-linked.
+  size_bytes Int @db.Integer
+  
+  /// Attachment version. Implements immutable versioning; increments on overwrite/update. Not denormalized. Example: version 2 = re-uploaded file.
+  version Int @db.Integer
+  
+  /// Upload timestamp. For audit and version tracking.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp. Legal/compliance retention only. Null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product_media product_media[]
+  product_review_attachments product_review_attachments[]
+  
+  @@unique([url])
+  @@index([created_at])
+  @@index([filename(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Snapshot entity - Implements the 'immutable, versioned data instance' pattern (Core System Concepts / Product Domain). 
+///
+/// Records the immutable state of a referenced entity (e.g., product, category) at a point in time. Each modification to products, categories, or board content generates a new snapshot, enabling history and rollback. This table is normalized: contains only atomic references and change context (entity, type, reason), no pre-calculated summaries. Example: Product edit triggers a new snapshot record referencing 'product_id', 'old_value', 'change_reason'.
+///
+/// Key relationships: references arbitrary entity via 'entity_type' and 'entity_id'; version management handled by application with foreign references. Special: all audit log/rollback uses this record.
+///
+/// @namespace Core
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique snapshot instance.
+  id String @id @db.Uuid
+  
+  /// Type of entity snapshotted. Implements polymorphism without redundancy. Example: 'product', 'category', 'board_post'.
+  entity_type String
+  
+  /// Target entity's ID (referencing another model's PK in application logic, not enforced FK for flexibility).
+  entity_id String @db.Uuid
+  
+  /// Type of change, e.g., 'create', 'update', 'delete'. For auditability; atomic only.
+  change_type String
+  
+  /// Reason for snapshot; admin-entered or system-generated. Example: 'manual edit', 'bulk import'. Optional, nullable. Atomic for 3NF.
+  change_reason String?
+  
+  /// Timestamp of snapshot. For audit/history rollbacks. Atomic to snapshot event.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  favorites favorites[]
+  
+  @@unique([entity_type, entity_id, created_at])
+  @@index([entity_type, entity_id])
+  @@index([change_reason(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// AI Hook entity - Implements the 'AI Layer' extensibility requirement (Core System Concepts section 2.5, AI/Analytics/Future-readiness).
+///
+/// Represents registered AI microservices/automation endpoints that process or enrich entities like products, orders, or users. Hook registration per channel/target, records endpoint and config. No denormalized/cached results here. Example: fraud detection hook for 'order', recommendation hook for 'product' etc. Controlled via join tables/entities for each triggered event/log elsewhere.
+///
+/// Key relationships: references channel; target entity typed by application logic. Special: actual runtime calls/results not stored here, only registration/config.
+///
+/// @namespace Core
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_hooks {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique AI hook instance.
+  id String @id @db.Uuid
+  
+  /// Owning channel for this AI hook. Implements channel-scoped extensibility.
+  channel_id String @db.Uuid
+  
+  /// Type of target (e.g., 'order', 'product', 'user'). No FK; for extensible polymorphism.
+  target_entity_type String
+  
+  /// AI service endpoint URL. Example: 'https://ai.mall.com/fraudcheck'. For runtime dispatch only.
+  endpoint_url String @db.VarChar(80000)
+  
+  /// Serialized config/params. Atomic per hook; not denormalized. Example: '{"threshold":0.8}'. Nullable.
+  config_json String?
+  
+  /// Whether the AI hook is currently active (toggle for feature rollouts/testing).
+  enabled Boolean
+  
+  /// Add timestamp. For audit/history.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last updated timestamp.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft delete timestamp. Auditable deactivation.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  channel channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  
+  @@index([channel_id, target_entity_type])
+}

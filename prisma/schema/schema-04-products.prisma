@@ -1,0 +1,396 @@
+/// [Product entity] - This implements F1 (Product CRUD with variant/bundle support), F2 (immutable product snapshots), and F3 (category, tag, attribute, channel search customization) from the requirements document. 
+///
+/// Represents the core product in the shopping mall, serving as the parent for variants, bundles, media, SEO metadata, and snapshot versioning. Maintains 3NF by only holding atomic product identification and main relationships; details and descriptions are managed in related models/snapshots. Example: When a new smartphone is listed, the 'products' row is created; edits generate new snapshots. 
+///
+/// Key relationships: variants, bundles, options, attributes, snapshots, media attachments, SEO metadata, category/tag assignment. 
+/// Special behaviors: All changes are via snapshots, products are never deleted but soft-deleted to meet audit/compliance.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model products {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Belonged channel's {@link channels.id}. Implements multi-channel capability (Core System Concepts 2.1). Products are scoped to specific channels for tailored management and listings.
+  channel_id String @db.Uuid
+  
+  /// [Unique business code] - Implements product unique identifier/coding for F1 (CRUD/SEO/3rd party integration).
+  ///
+  /// Used for integration, product lookup, and duplication prevention. Maintains normalization by remaining atomic. For example: SKU123456.
+  /// Must be unique per channel.
+  code String
+  
+  /// [Creation timestamp] - Implements audit/compliance traceability.
+  ///
+  /// When the product was created. Allows product lifecycle and audit tracking, strictly atomic. For example: When a seller registers a product.
+  /// Never null.
+  created_at DateTime @db.Timestamptz
+  
+  /// [Update timestamp] - Implements audit, triggers for snapshot/AI.
+  ///
+  /// When the product was last modified (triggers new snapshot, external sync, or AI event), not a computed field but historical. Always atomic. For example: When a product detail is edited, this is updated.
+  /// Never null.
+  updated_at DateTime @db.Timestamptz
+  
+  /// [Soft delete marker] - Implements regulatory requirement, audit, and reversibility.
+  ///
+  /// If the product is deleted (soft), the timestamp is recorded. Maintains normalization by not removing the record (audit evidence).
+  /// For example: Product de-listed due to compliance issue.
+  /// Optional.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  channel channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  
+  product_variants product_variants[]
+  product_bundles product_bundles[]
+  product_options product_options[]
+  product_snapshots product_snapshots[]
+  product_media product_media[]
+  product_seo_metas product_seo_metas[]
+  product_category_assignments product_category_assignments[]
+  search_index search_index?
+  product_bulletins product_bulletins[]
+  product_reviews product_reviews[]
+  
+  @@unique([channel_id, code])
+  @@index([channel_id, created_at])
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// [Product variant entity] - Implements F1 (variants/options), F3 (channel customization) from the requirements. 
+///
+/// Represents a purchasable variant for a product, e.g., size/color/edition. Only holds atomic variant attributes and relationship to products; variant-specific option/attribute references stored in related tables. Maintains 3NF by deferring details to option/attribute models. For example: 'Red, 128GB' variant for a smartphone.
+///
+/// Key relationships: belongs to product, has attributes/options, appears in bundles.
+/// Special behaviors: unique code per product-variant, soft delete only.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_variants {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Belonged product's {@link products.id}. Links to master product (bundle of variants).
+  product_id String @db.Uuid
+  
+  /// [Variant code] - Implements F1 (integration, inventory, compliance) and F3 (variant lookup/identification).
+  /// Atomic code per variant. Example: SKU-PROD-A-BLUE-M. Unique per product.
+  /// Never null.
+  code String
+  
+  /// [Creation timestamp] - Audit and compliance.
+  /// When the variant was created. Used for lifecycle and analytics.
+  /// Never null.
+  created_at DateTime @db.Timestamptz
+  
+  /// [Update timestamp] - Triggers for inventory/AI analytics.
+  /// Updated when changes are made to the variant.
+  /// Never null.
+  updated_at DateTime @db.Timestamptz
+  
+  /// [Soft delete marker] - Regulatory/audit reversibility.
+  /// Variant is marked as deleted but retained for evidence.
+  /// Optional.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  
+  product_bundles product_bundles[]
+  product_attributes product_attributes[]
+  cart_items cart_items[]
+  order_items order_items[]
+  
+  @@unique([product_id, code])
+  @@index([product_id, created_at])
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// [Product bundle entity] - Implements F1 (bundles/combo products, unlimited composites) from the requirements.
+/// Represents a bundle which groups specific product variants together as a sellable or promotional unit. Maintains normalization via strict junction modeling. For example: 'Holiday Gift Set' containing soap and towel variant-IDs.
+///
+/// Key relationships: links to bundle owner product, and pointed variants via junction.
+/// Special behaviors: Bundles can be virtual; deletion is soft.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_bundles {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Owner product's {@link products.id}. This bundle is a merchandising aspect of the product.
+  product_id String @db.Uuid
+  
+  /// Bundled variant's {@link product_variants.id}. The variant included in this bundle.
+  variant_id String @db.Uuid
+  
+  /// [Variant quantity] - Implements F1 (quantity control in bundle). Number of units of the variant in this bundle. Fully atomic, never null.
+  /// Example: A bundle contains 2 red towels, 1 soap.
+  quantity Int @db.Integer
+  
+  /// [Creation timestamp] - Enables historical reporting, compliance.
+  created_at DateTime @db.Timestamptz
+  
+  /// [Update timestamp] - Audit and reporting.
+  updated_at DateTime @db.Timestamptz
+  
+  /// [Soft delete marker] - Regulatory evidence, reversibility.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  
+  @@index([variant_id])
+  
+  @@unique([product_id, variant_id])
+  @@index([product_id])
+}
+
+/// [Product option] - Implements F1 (variants/options), F3 (channel customization) and F6 (AI-enabled search/merchandising).
+/// Defines an option applicable to a product (e.g., color, size). 3NF is maintained by not storing resolved choice/values here. Example: 'Color', 'Size' for T-shirts.
+///
+/// Key relationships: belongs to product, referenced by variants and attribute models.
+/// Special behaviors: Option names are localizable, and have GIN for i18n search.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_options {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Belonged product's {@link products.id}. The product this option is relevant to.
+  product_id String @db.Uuid
+  
+  /// [Option name] - Implements F1 (option display/selection, i18n).
+  /// E.g., 'Color', 'Size'. Used for display and AI.
+  /// Never null.
+  name String
+  
+  /// [Option required flag] - Is this option mandatory for the variant. Ensures variant completeness. Example: Shoes always require 'Size'.
+  required Boolean
+  
+  /// [Order of appearance] - Controls display order in UI, purely atomic.
+  /// Example: 'Color' is shown before 'Size'.
+  sort_order Int @db.Integer
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  
+  product_attributes product_attributes[]
+  
+  @@unique([product_id, name])
+  @@index([product_id])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// [Product attribute] - Implements F1 (flex/variant-attribute extensibility) and F3.
+/// Atomic values reflecting option choices for each variant. E.g., for 'Color', Value = 'Red'. Maintains 3NF by only storing resolved choices, not calculated combos.
+///
+/// Key relationships: belongs to variant, references option for meaning.
+/// Special behaviors: Option-value atomic, i18n ready.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_attributes {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Variant's {@link product_variants.id}.
+  variant_id String @db.Uuid
+  
+  /// Option's {@link product_options.id}.
+  /// Indicates which product option this attribute realizes.
+  option_id String @db.Uuid
+  
+  /// [Attribute value] - Implements F1/F3 (variant attribute; atomic choice, i18n ready).
+  /// E.g., 'Red', 'Large'. Never null.
+  /// Atomic/independent by design.
+  value String
+  
+  //----
+  // RELATIONS
+  //----
+  variant product_variants @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+  option product_options @relation(fields: [option_id], references: [id], onDelete: Cascade)
+  
+  @@unique([variant_id, option_id])
+  @@index([option_id])
+  @@index([value(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// [Product snapshot entity] - Implements F2 (immutable product versioning, compliance, audit) from requirements.
+/// Stores immutable product state on every change to the product (edit, publish, etc.). Only exact product data and versioning info, no computed fields. Maintains normalization for snapshot storage. Example: User edits title/description; a new snapshot row is recorded.
+///
+/// Key relationships: belongs to product, references updating actor.
+/// Special behaviors: Snapshots are append-only, never edited/deleted, strict audit record.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Related product's {@link products.id}.
+  /// Indicates which product is snapshotted and versioned.
+  product_id String @db.Uuid
+  
+  /// User {@link users.id} who performed the update. Ties change to responsible actor (admin/seller) for compliance.
+  /// May be null if system-automated.
+  actor_id String? @db.Uuid
+  
+  /// [Title at time of snapshot] - Implements F2/F4 (audit, compliance, versioned display, i18n with external support).
+  /// Strictly point-in-time, atomic.
+  /// E.g., 'Summer Collection Dress' (May 1, 2025).
+  title String
+  
+  /// [Description at time of snapshot] - Implements F2/F4.
+  /// Atomic, immutable per snapshot. I18n via external reference.
+  /// E.g., 'Latest design, lightweight.' Never null if published.
+  description String
+  
+  /// [Published status at snapshot] - Was this version the published one?
+  /// Implements workflow/restore features. Atomic, never computed.
+  published Boolean
+  
+  /// [Snapshot creation timestamp] - Strict auditability/traceability.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  actor users? @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+  
+  product_media product_media[]
+  search_index search_index[]
+  product_reviews product_reviews[]
+  
+  @@index([actor_id])
+  
+  @@unique([product_id, created_at])
+  @@index([product_id])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// [Product media/attachment entity] - Implements F5 (media/attachment support in product and boards).
+/// Defines atomic product media files (images, video, docs) that may be shown for a product.
+/// Maintains full normalization; links each record to an attachment, never stores blobs itself.
+///
+/// Key relationships: belongs to product, references external attachment (with versioning). Optionally linked to snapshot for historical display.
+/// Special behaviors: Version and attachment tracked, no pre-calculated fields.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_media {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Parent product's {@link products.id}.
+  product_id String @db.Uuid
+  
+  /// Linked attachment file's {@link attachments.id}. Always references external attachment table for audit/versioning/CDN.
+  attachment_id String @db.Uuid
+  
+  /// Optional reference to {@link product_snapshots.id} indicating which version's media it belongs to (enables reconstruction of product state in time).
+  snapshot_id String? @db.Uuid
+  
+  /// [Display order] - Implements F5 (ordering in UX, image carousel). Defines position in product's gallery. Strictly atomic.
+  /// E.g., Primary image has sort_order=1. Never null.
+  sort_order Int @db.Integer
+  
+  /// [Media type] - Category of media (image, video, doc), implements F5 & compliance rules.
+  type String
+  
+  /// [Alt text] - Used for accessibility compliance, i18n ready. Purely atomic. E.g., 'Front view'. Optional for accessibility (WCAG).
+  /// Optional.
+  alt_text String?
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  attachment attachments @relation(fields: [attachment_id], references: [id], onDelete: Cascade)
+  snapshot product_snapshots? @relation(fields: [snapshot_id], references: [id], onDelete: Cascade)
+  
+  @@index([attachment_id])
+  @@index([snapshot_id])
+  
+  @@unique([product_id, attachment_id])
+  @@index([product_id, sort_order])
+  @@index([alt_text(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// [Product SEO meta entity] - Implements F1 & F5 (SEO/marketing rich meta) from requirements.
+/// Atomic SEO metadata, scoped per product and channel. Never pre-calc, always 1NF/3NF.
+/// Key relationships: belongs to product, scoped to channel.
+/// Special behaviors: SEO metadata can be indexed separately by GIN for advanced search, i18n is via external/localization strings.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model product_seo_metas {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Related product's {@link products.id}.
+  product_id String @db.Uuid
+  
+  /// Channel context (for multi-channel SEO customization) {@link channels.id}.
+  channel_id String @db.Uuid
+  
+  /// [SEO title] - Used in head/meta for SEO. Fully atomic. 
+  /// E.g., 'Buy Summer Dress Online'. Never null.
+  meta_title String
+  
+  /// [SEO description] - Appears in Google Snippets. Atomic. 
+  /// E.g., 'Shop latest design, fast delivery'. Optional but never calculated.
+  meta_description String?
+  
+  /// [SEO keywords] - Comma-separated tags or keyword string (searchable).
+  /// E.g., 'dress, summer, design'. Optional, atomic.
+  meta_keywords String?
+  
+  //----
+  // RELATIONS
+  //----
+  product products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  channel channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  
+  @@index([channel_id])
+  
+  @@unique([product_id, channel_id])
+  @@index([meta_title(ops: raw("gin_trgm_ops"))], type: Gin)
+}

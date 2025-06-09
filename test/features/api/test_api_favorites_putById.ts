@@ -1,0 +1,12 @@
+import api from "@ORGANIZATION/PROJECT-api";
+import typia from "typia";
+
+import { IFavorite } from "@ORGANIZATION/PROJECT-api/lib/structures/IFavorite";
+
+export async function test_api_favorites_putById(connection: api.IConnection) {
+  const output: IFavorite = await api.functional.favorites.putById(connection, {
+    id: typia.random<string>(),
+    body: typia.random<IFavorite.IUpdate>(),
+  });
+  typia.assert(output);
+}
