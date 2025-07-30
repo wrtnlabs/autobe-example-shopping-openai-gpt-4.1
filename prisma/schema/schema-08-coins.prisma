@@ -1,0 +1,98 @@
+/// Loyalty Transaction Entity - Implements the loyalty point/mileage tracking and auditing requirements from the Discount & Loyalty System document. Each record is a normalized atomic transaction (accrual, redemption, expiration, or reversal), ensuring 3NF by not holding computed balances. Strong auditability for compliance and fraud prevention. References Customers (required), Orders (optional), Coupons (optional). Example: accrual for order completion, burning for redemption, reversal for refund.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_loyalty_transactions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for each loyalty transaction record.
+  id String @id
+  
+  /// Associated customer's {@link aimall_backend_customers.id}. Links this transaction to the user who earned or used mileage/points.
+  customer_id String
+  
+  /// Associated order's {@link aimall_backend_orders.id}; set if triggered by an order (e.g. purchase, refund, etc).
+  order_id String?
+  
+  /// Associated coupon's {@link aimall_backend_coupons.id}, if transaction was triggered by coupon redemption or benefit.
+  coupon_id String?
+  
+  /// Net change in user's mileage or loyalty points. Positive for accrual/awards, negative for redemption/expiration. Atomic value, not a running balance.
+  amount Float
+  
+  /// Type of this transaction e.g. 'accrual', 'redemption', 'expiration', 'refund_reversal'. Business event code for this record.
+  type String
+  
+  /// Operator/user-facing context reason (e.g. 'Order 0001 redemption', 'Sign-up bonus', 'Points expired', etc). May be null for system-generated entries.
+  description String?
+  
+  /// Timestamp of transaction creation. Used for audit, expiry, ordering, and analytics.
+  created_at DateTime
+  
+  /// If this transaction caused point expiration, the timestamp of expiry. Nullable - not all transactions expire points.
+  expired_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  order aimall_backend_orders? @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  coupon aimall_backend_coupons? @relation(fields: [coupon_id], references: [id], onDelete: Cascade)
+  
+  @@index([coupon_id])
+  
+  @@index([customer_id, created_at])
+  @@index([order_id])
+}
+
+/// Abuse Incident Entity - Each record is a single system- or admin-detected abuse/fraud event related to loyalty/discount/coupon/points usage. Normalized (3NF): only atomic events here. Examples: self-referral, rapid stacking, velocity anomalies. Used for AI/analytics, compliance, and admin investigation. References: customer, order, coupon, discount campaign when applicable.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_abuse_incidents {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for this abuse incident record.
+  id String @id
+  
+  /// Suspected or affected customer's {@link aimall_backend_customers.id}. Nullable if systemic (not user-specific).
+  customer_id String?
+  
+  /// Associated order's {@link aimall_backend_orders.id}. Nullable if not order-based.
+  order_id String?
+  
+  /// Associated coupon's {@link aimall_backend_coupons.id}. Nullable if incident not coupon-based.
+  coupon_id String?
+  
+  /// Related campaign's {@link aimall_backend_discount_campaigns.id}. Nullable if not campaign-linked.
+  discount_campaign_id String?
+  
+  /// Nature/type of abuse e.g. 'self_referral', 'coupon_stacking', 'velocity_anomaly', 'systemwide_policy'. Root cause/event code.
+  type String
+  
+  /// Further context/notes (e.g. IDs, context, admin note). Nullable if covered by other fields or not applicable.
+  details String?
+  
+  /// Timestamp when system or admin detected (flagged) this event.
+  detected_at DateTime
+  
+  /// Incident status: true if admin/AI confirmed and closed investigation, false if pending.
+  resolved Boolean
+  
+  //----
+  // RELATIONS
+  //----
+  customer aimall_backend_customers? @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  order aimall_backend_orders? @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  coupon aimall_backend_coupons? @relation(fields: [coupon_id], references: [id], onDelete: Cascade)
+  discount_campaign aimall_backend_discount_campaigns? @relation(fields: [discount_campaign_id], references: [id], onDelete: Cascade)
+  
+  @@index([order_id])
+  @@index([coupon_id])
+  @@index([discount_campaign_id])
+  
+  @@index([customer_id, type, detected_at])
+  @@index([resolved, detected_at])
+}

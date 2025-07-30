@@ -1,0 +1,126 @@
+/// Channel entity - Implements the channels management requirement, supporting the definition and configuration of sales/distribution channels (e.g., main website, partner sites, mobile app) within the systematic backbone. Channels represent different distribution fronts for the platform, allowing appropriate products and content to be mapped or scoped. Strict 3NF compliance is maintained by decoupling the channel entity from other business entities. Channels may be referenced externally by related domain tables (such as products, channel assignments).
+///
+/// @namespace Systematic
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_channels {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Uniquely identifies each channel by universally unique identifier according to best practice.
+  id String @id
+  
+  /// Channel code: unique short identifier (e.g., 'WEB', 'MOBILE'). Used for programmatic lookups and internal configuration, atomic value. Unique across all channels.
+  code String
+  
+  /// Human-readable channel name for UIs and management. Fully normalized, used in admin/service configurations.
+  name String
+  
+  /// If true, channel is active; otherwise, channel is disabled for routing/service. Atomic flag, fully normalized. Used for toggling channel availability without deletion.
+  enabled Boolean
+  
+  /// Row creation timestamp for audit trail and compliance, required for record keeping. 3NF: atomic.
+  created_at DateTime
+  
+  /// Last modification timestamp for audit/change tracking. Atomic, not pre-calculated.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  aimall_backend_sections aimall_backend_sections[]
+  aimall_backend_configurations aimall_backend_configurations[]
+  aimall_backend_channel_assignments aimall_backend_channel_assignments[]
+  
+  @@unique([code])
+  @@index([enabled])
+}
+
+/// Section entity - Implements the requirement for UI/display content organization within channels. Sections are subdivisions (e.g., homepage banners, featured blocks) and strictly normalized. Channel_id is FK to channels, code is unique within channel. Soft deletion uses deleted_at. Used as a referencing entity for content/product/offer assignment modules in other domains. No denormalized data, all fields atomic. 3NF compliant.
+///
+/// @namespace Systematic
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_sections {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Uniquely identifies each section in the system.
+  id String @id
+  
+  /// Belonged channel's {@link aimall_backend_channels.id}. Links section to a specific channel. This ensures clear channel/section-scoping. Non-nullable for data integrity.
+  channel_id String
+  
+  /// Section code, unique within channel, e.g., 'BANNER', 'DEALS'. Atomic value; fully 3NF; no repetition.
+  code String
+  
+  /// Section display name: human readable, for admin/UI. Atomic data, normalized.
+  name String
+  
+  /// Numeric order for display, atomic field, 3NF. Used for admin/UI ordering and rendering control.
+  display_order Int
+  
+  /// If true, section is active/visible; admin toggle/control for soft suppressing/activating sections. 3NF, atomic field.
+  enabled Boolean
+  
+  /// Creation timestamp for audit/logical tracing, no denormalization.
+  created_at DateTime
+  
+  /// Last change timestamp for auditing. No pre-calculation, atomic field. 3NF.
+  updated_at DateTime
+  
+  /// Logical deletion field: soft delete with timestamp, null if alive. Used for logical retention and audit. Nullable.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  fk_aimall_backend_sections_channel_id aimall_backend_channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_configurations aimall_backend_configurations[]
+  
+  @@unique([channel_id, code])
+  @@index([enabled])
+  @@index([channel_id, display_order])
+}
+
+/// System Configuration entity - Implements requirement for global, channel, or section-scoped setting storage. Each configuration represents a setting (key/value) optionally scoped to channel or section. Used for feature toggles, platform-wide or channel-specific behaviors. Fully 3NF: no duplicated/denormalized/calculated fields, all settings atomic and change-tracked. Key+channel_id+section_id combination is unique to avoid overlap. All relationships are optional (global = both null).
+///
+/// @namespace Systematic
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_configurations {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique record id. Each config is a standalone setting.
+  id String @id
+  
+  /// Optional foreign key to {@link aimall_backend_channels.id}. Null = global config; for channel-level settings. Ensures normalized design. Soft constraint; referenced channel must exist if used.
+  channel_id String?
+  
+  /// Optional FK to {@link aimall_backend_sections.id}. Null = applies at global or channel settings; non-null = conf applies to given section. Retains 3NF, atomic references.
+  section_id String?
+  
+  /// Configuration key for setting, e.g., 'site_maintenance'. Atomic string key, unique per channel+section. No denormalization, single data point.
+  key String
+  
+  /// Setting value in string form, to allow flexible data types (bool/int/JSON all as strings). Pure field, 3NF, atomic.
+  value String
+  
+  /// Optional text explaining the configuration for admins, nullable. Used for documentation and operational clarity. No constraint; normalized; not required.
+  description String?
+  
+  /// Row created time for compliance/auditability. Not null; not derived.
+  created_at DateTime
+  
+  /// Last change timestamp. 3NF: atomic field, not precomputed or denormalized.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  fk_aimall_backend_configurations_channel_id aimall_backend_channels? @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  fk_aimall_backend_configurations_section_id aimall_backend_sections? @relation(fields: [section_id], references: [id], onDelete: Cascade)
+  
+  @@unique([key, channel_id, section_id])
+  @@index([channel_id])
+  @@index([section_id])
+}

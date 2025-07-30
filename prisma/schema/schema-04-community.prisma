@@ -1,0 +1,261 @@
+/// Community Post Entity – Implements community post requirements from '06_aimall-backend_bulletin-board-and-community.md'.
+///
+/// This model represents bulletin board posts (questions, articles, announcements) by customers, sellers, or administrators. Maintains 3NF by separating atomic fields and delegating denormalized/aggregated data to materialized views if needed. Example: User creates a Q&A entry, product question, or system announcement.
+///
+/// Key relationships: References actor via foreign key (customer/seller/administrator via polymorphic pattern by referencing only customer for now, or 'actor_id' if polymorphism were implemented). May be linked to multiple comments and attachments. Product review posts are modelled in 'aimall_backend_reviews'.
+/// Special behaviors: Only atomic, normalized data, status/visibility managed via fields (no pre-calculated counters).
+///
+/// @namespace Community
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_posts {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for the post record.
+  id String @id
+  
+  /// Belonged customer's {@link aimall_backend_customers.id}. Links post to the creating customer. Nullable for posts by seller/admin (future extension).
+  customer_id String?
+  
+  /// Post title – Implements post composition requirements. The headline users see in boards or feeds. Maintains normalization by storing each post's title only once. Example: 'How do AI coupons work?'.
+  title String
+  
+  /// Post content – Implements discussion body requirement. The main textual content. Fully normalized and searchable. Example: 'You can redeem AI coupons every Friday...'.
+  body String
+  
+  /// Whether the post is private – Controls visibility per requirements. Ensures that private/public settings are not duplicated elsewhere. Example: A seller-customer product Q&A marked as private.
+  is_private Boolean
+  
+  /// Post view count – For tracking read frequency, enabling moderation or analytics. Not pre-aggregated; raw counter updated per view (always atomic). Example: 12 views.
+  view_count Int
+  
+  /// Creation timestamp – Implements system recording and audit requirements. Atomic record of creation. Example: 2025-07-29T15:45:40Z.
+  created_at DateTime
+  
+  /// Last modification timestamp. Timestamp for auditing edits. Example: 2025-07-29T15:45:40Z.
+  updated_at DateTime
+  
+  /// Soft deletion timestamp. Allows for compliant redaction/restore. Null if not deleted. Example: null or 2025-07-29T16:00:00Z.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  fk_posts_customer aimall_backend_customers? @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_comments aimall_backend_comments[]
+  aimall_backend_attachments aimall_backend_attachments[]
+  aimall_backend_snapshots aimall_backend_snapshots[]
+  
+  @@unique([customer_id, title])
+  @@index([created_at])
+  @@index([deleted_at])
+}
+
+/// Community Comment Entity – Implements content/comment system from '06_aimall-backend_bulletin-board-and-community.md'.
+///
+/// Stores user comments/replies attached to posts, reviews, or announcements while normalizing structure (3NF). Each comment belongs to a post or review via foreign key. Maintains strict normalization by holding only atomic, per-comment data.
+/// Example: User adds a reply to a Q&A, review, or announcement.
+/// Key relationships: Links to aimall_backend_posts, aimall_backend_reviews, and optionally to parent comments for threads.
+/// Special behaviors: Soft deletion supported by nullable timestamp; content removed only on explicit deletion for audit.
+///
+/// @namespace Community
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_comments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for the comment record.
+  id String @id
+  
+  /// Target post's {@link aimall_backend_posts.id}. Links comment to a post entry.
+  post_id String?
+  
+  /// Target review's {@link aimall_backend_reviews.id}. Allows comments on reviews as per requirements.
+  review_id String?
+  
+  /// Parent comment's {@link aimall_backend_comments.id}. Enables comment/reply threading. Null for top-level comments.
+  parent_id String?
+  
+  /// Comment author's {@link aimall_backend_customers.id}. Links comment to originating customer (nullable for polymorphic future extension).
+  customer_id String?
+  
+  /// Comment content. Main discussion text. Fully normalized; all comments stored atomically. Example: 'Great post, thank you!'
+  body String
+  
+  /// Is the comment private? Controls visibility per business rules. Example: true for seller/private thread, false for public comments.
+  is_private Boolean
+  
+  /// Creation timestamp – for full audit trail and recency sorting.
+  created_at DateTime
+  
+  /// Last mod time – modified for each comment edit as audit record.
+  updated_at DateTime
+  
+  /// Soft deletion timestamp. Null if active; otherwise marks as deleted for compliance/audit.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  fk_comments_post aimall_backend_posts? @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  fk_comments_review aimall_backend_reviews? @relation(fields: [review_id], references: [id], onDelete: Cascade)
+  fk_comments_parent aimall_backend_comments? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  fk_comments_customer aimall_backend_customers? @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  recursive aimall_backend_comments[] @relation("recursive")
+  aimall_backend_attachments aimall_backend_attachments[]
+  
+  @@index([customer_id])
+  
+  @@index([post_id])
+  @@index([review_id])
+  @@index([parent_id])
+}
+
+/// Product Review Entity – Implements review, rating, and moderation features from '06_aimall-backend_bulletin-board-and-community.md'.
+///
+/// Stores atomic product reviews with ratings, authored by customers. Maintains strict 3NF with one record per review. Example: Customer reviews a recently delivered product.
+/// Key relationships: Links to customer (author) and product (target), both via foreign key referencing respective models in other domains. Review-specific attachments stored separately in aimall_backend_attachments.
+/// Special behaviors: Supports soft deletion. Moderation handled externally (status flag can be added for further workflows).
+///
+/// @namespace Community
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_reviews {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for the review record.
+  id String @id
+  
+  /// Reviewing customer's {@link aimall_backend_customers.id}. Authorship for reference and audit.
+  customer_id String
+  
+  /// Target product's {@link aimall_backend_products.id}. The product reviewed in this entry.
+  product_id String
+  
+  /// Review title. Concise headline for the review. Normalized by review. Example: 'Super fast delivery!'
+  title String
+  
+  /// Review content text. Main review message from reviewer. Example: 'I received the item within one day; packaging was good.'
+  body String
+  
+  /// Star rating (1–5) as required by product review features. Integer, enforced by input layer. Example: 4
+  rating Int
+  
+  /// Review creation timestamp for audit/history/personalization.
+  created_at DateTime
+  
+  /// Timestamp for last review edit. Used for moderation/logging.
+  updated_at DateTime
+  
+  /// Soft deletion timestamp; null for active, otherwise signals redaction/restoration window.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  fk_reviews_customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  fk_reviews_product aimall_backend_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_comments aimall_backend_comments[]
+  aimall_backend_attachments aimall_backend_attachments[]
+  
+  @@unique([customer_id, product_id])
+  @@index([product_id])
+  @@index([created_at])
+}
+
+/// Community Attachment Entity – Implements attachment/media requirements from '06_aimall-backend_bulletin-board-and-community.md'.
+///
+/// Atomic representation of file/image/video/document attached to post, comment, or review. Maintains 3NF by separating main content and attachment storage. Example: User uploads a photo for a review or Q&A.
+/// Key relationships: Attachments link to posts, comments, or reviews via foreign keys (only one set at a time, reflecting context).
+/// Special behaviors: All files are stored externally and referenced by URI for privacy/compliance.
+///
+/// @namespace Community
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_attachments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for the attachment record.
+  id String @id
+  
+  /// Belonged post's {@link aimall_backend_posts.id}. Nullable; links file to a post if set.
+  post_id String?
+  
+  /// Belonged comment's {@link aimall_backend_comments.id}. Nullable; file attached to a comment.
+  comment_id String?
+  
+  /// Belonged review's {@link aimall_backend_reviews.id}. Nullable; attaches to review media.
+  review_id String?
+  
+  /// File URI – Implements external reference for uploaded files by compliance. Atomic URI field only. Example: 's3://bucket/folder/uuid-filename.jpg'
+  file_uri String
+  
+  /// File type (image, video, doc) to support moderation. Example: 'image/jpeg'
+  file_type String
+  
+  /// File size in bytes. Enables size filtering and compliance. Example: 328914
+  file_size Int
+  
+  /// File creation/upload timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  fk_attachments_post aimall_backend_posts? @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  fk_attachments_comment aimall_backend_comments? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+  fk_attachments_review aimall_backend_reviews? @relation(fields: [review_id], references: [id], onDelete: Cascade)
+  
+  @@index([post_id])
+  @@index([comment_id])
+  @@index([review_id])
+}
+
+/// Community Snapshot Entity – Implements the snapshot/photo-sharing feature from '06_aimall-backend_bulletin-board-and-community.md'.
+///
+/// Used to store user image/photo/short-video moments optionally linked to products or posts for the social timeline. Maintains strict normalization (each row = one snapshot). Example: Photo tagged to a product or post for trending feed.
+/// Key relationships: Foreign keys to products, posts, and customers per context.
+/// Special behaviors: No denormalized trends/cache; all aggregated/denormalized data resides in views.
+///
+/// @namespace Community
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Unique identifier for the snapshot record.
+  id String @id
+  
+  /// Tagged product's {@link aimall_backend_products.id}. Link snapshot to a product for timeline, searchable by product.
+  product_id String?
+  
+  /// Tagged post's {@link aimall_backend_posts.id}. Enables photo-to-post association.
+  post_id String?
+  
+  /// Creator customer's {@link aimall_backend_customers.id}. Snapshot author/reference. Nullable for anonymous posts.
+  customer_id String?
+  
+  /// Media file URI – integrity-persistent link to external image/video for compliance. Atomic per snapshot. Example: 's3://bucket/path/snap-uuid.jpg'
+  media_uri String
+  
+  /// Short caption for post context or social feeds. Example: 'Spring Fashion 2025 - Trending Looks'
+  caption String?
+  
+  /// Moment creation/upload timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  fk_snapshots_product aimall_backend_products? @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  fk_snapshots_post aimall_backend_posts? @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  fk_snapshots_customer aimall_backend_customers? @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  @@index([customer_id])
+  
+  @@index([product_id])
+  @@index([post_id])
+}

@@ -1,0 +1,94 @@
+/// Cart entity for persistent session/account shopping cart, per 07_aimall-backend_cart-system.md. Implements shopping cart ownership and lifecycle, supporting both account-linked and guest session carts. Ensures 3NF by only containing ownership/session metadata and maintaining relations to items. Enforces business logic for one active cart per customer/session via unique constraints. Primary use: container for items prior to purchase/order creation.
+///
+/// @namespace Carts
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_carts {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Uniquely identifies the cart instance.
+  id String @id
+  
+  /// Owned account's {@link aimall_backend_customers.id}. Nullable for anonymous/guest carts. Implements account-tied cart merging requirement.
+  aimall_backend_customer_id String?
+  
+  /// Session or device token for anonymous carts; one of this or aimall_backend_customer_id should be present. Allows unique cart per session. Nullable for account-tied carts.
+  session_token String?
+  
+  /// Cart creation timestamp. For auditing, recovery, and analytics use cases.
+  created_at DateTime
+  
+  /// Cart update timestamp. For sync, concurrent editing, and recovery. Always required.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  customer aimall_backend_customers? @relation(fields: [aimall_backend_customer_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_cart_items aimall_backend_cart_items[]
+  
+  @@unique([aimall_backend_customer_id])
+  @@unique([session_token])
+  @@index([created_at])
+  @@index([updated_at])
+}
+
+/// Cart item entity for individual products/options/SKUs attached to a cart, per 07_aimall-backend_cart-system.md. Strictly normalized to 3NF: each row references only atomic, business-level selections for one cart, product, option, and SKU. No pre-calculated or denormalized data: totals and calculations only in order or reporting models. Guarantees item distinction via composite unique key and references only valid products/SKUs/options across domains.
+///
+/// @namespace Carts
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_cart_items {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Identifies the cart item row uniquely.
+  id String @id
+  
+  /// The cart's {@link aimall_backend_carts.id} this item is attached to. Implements cart containment. Required always.
+  aimall_backend_cart_id String
+  
+  /// The product's {@link aimall_backend_products.id} for this item. Implements product line selection requirement.
+  aimall_backend_product_id String
+  
+  /// The product option's {@link aimall_backend_product_options.id} (size, color, etc). Nullable if product has no options. Implements variant selection.
+  aimall_backend_product_option_id String?
+  
+  /// The SKU's {@link aimall_backend_skus.id} representing the selected product variant. Nullable for unkeyed SKUs. Validates inventory/restrictions at checkout.
+  aimall_backend_sku_id String?
+  
+  /// Requested quantity. Implements unit selection policy, always positive integer. No pre-calculation, strictly atomic. Normalized per 3NF.
+  quantity Int
+  
+  /// Unit price snapshot at time of addition. Fulfills price/discount audit requirement. Must not be pre-calculated for totals, normalization preserved.
+  unit_price_snapshot Float
+  
+  /// Discount value per item at time of assignment. Captures promo logic at item addition. Nullable if no discount applied. Calculation delegated to reporting/views.
+  discount_snapshot Float?
+  
+  /// Optional UI-friendly product+option name for easier display in UI/cart. Optional, not required for backend operation.
+  selected_name_display String?
+  
+  /// Timestamp: item creation. For lifecycle/audit tracking. Required.
+  created_at DateTime
+  
+  /// Timestamp: item update. Required for change tracking.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  cart aimall_backend_carts @relation(fields: [aimall_backend_cart_id], references: [id], onDelete: Cascade)
+  product aimall_backend_products @relation(fields: [aimall_backend_product_id], references: [id], onDelete: Cascade)
+  product_option aimall_backend_product_options? @relation(fields: [aimall_backend_product_option_id], references: [id], onDelete: Cascade)
+  sku aimall_backend_skus? @relation(fields: [aimall_backend_sku_id], references: [id], onDelete: Cascade)
+  
+  @@index([aimall_backend_product_id])
+  @@index([aimall_backend_product_option_id])
+  @@index([aimall_backend_sku_id])
+  
+  @@unique([aimall_backend_cart_id, aimall_backend_product_id, aimall_backend_product_option_id, aimall_backend_sku_id], map: "aimall_backend_cart_items_aimall_backend_cart_id_aimal_90239ab5")
+  @@index([aimall_backend_cart_id])
+  @@index([created_at])
+  @@index([updated_at])
+}

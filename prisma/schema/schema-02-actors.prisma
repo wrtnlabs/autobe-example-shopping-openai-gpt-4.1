@@ -1,0 +1,282 @@
+/// Customer account data - This implements the core customer entity requirement from the Customer System requirements document. This model represents end-users who engage in shopping, use personalized features, and manage their own profiles, providing the anchor for all customer-centric activities. Maintains 3NF by separating identity and behavioral data. For example, referenced in orders, addresses, reviews, and behavior logs. Key relationships: links to external accounts, addresses, behavioral tracking. Special behaviors: unique constraints on identity; deletion triggers anonymization except for compliance logs.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_customers {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// The customer's primary email address - Implements identity requirement. Used for authentication and notifications. Enforces normalization by not duplicating across other tables. For example: unique login/email mapping. Must be unique.
+  email String
+  
+  /// Customer’s primary phone number. Implements alternative contact requirement. Kept atomic. Used for SMS notification and verification flows. Example: profile edit, password reset.
+  phone String
+  
+  /// Secure hashed password for the customer. Implements authentication requirement. Ensures security by never storing plain text. Used during login. Null for external-only accounts.
+  password_hash String?
+  
+  /// Account status (e.g., active, suspended, pending, deleted). Implements status tracking. Maintains normalization as atomic code. Example usage: onboarding approval, account lock.
+  status String
+  
+  /// Timestamp of account creation. Implements audit trail. Kept atomic and fully normalized. Used for registration analytics.
+  created_at DateTime
+  
+  /// Timestamp of last profile update. Implements audit and integrity requirement. Tracked for compliance/logging.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  aimall_backend_external_accounts aimall_backend_external_accounts[]
+  aimall_backend_behavior_trackings aimall_backend_behavior_trackings[]
+  aimall_backend_addresses aimall_backend_addresses[]
+  aimall_backend_posts aimall_backend_posts[]
+  aimall_backend_comments aimall_backend_comments[]
+  aimall_backend_reviews aimall_backend_reviews[]
+  aimall_backend_snapshots aimall_backend_snapshots[]
+  aimall_backend_carts aimall_backend_carts?
+  aimall_backend_orders aimall_backend_orders[]
+  aimall_backend_coupons aimall_backend_coupons[]
+  aimall_backend_coupon_redemptions aimall_backend_coupon_redemptions[]
+  aimall_backend_loyalty_transactions aimall_backend_loyalty_transactions[]
+  aimall_backend_abuse_incidents aimall_backend_abuse_incidents[]
+  aimall_backend_support_tickets aimall_backend_support_tickets[]
+  
+  @@unique([email])
+  @@unique([phone])
+  @@index([created_at])
+}
+
+/// Seller account record - Implements the seller onboarding and management requirement from the Seller System requirements. Each record represents a merchant business identity for listing, inventory management, and analytics. Maintains 3NF by storing only atomic seller-level data. Related to permissions for advanced controls. Example: referenced when tracking seller performance or auditing onboarding. Key relationships: may reference granular permission entity. Special behaviors: Verification/check/audit status handled via status field.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_sellers {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Seller’s registered business name. Implements business profile requirement. Normalized to avoid duplication in product or order records. Used for display and compliance checks.
+  business_name String
+  
+  /// Seller’s business contact email. Used for onboarding, notification, and login if allowed. Maintains uniqueness and normalization. For example: used in seller sign-up, password reset.
+  email String
+  
+  /// Seller’s primary contact phone. Implements communication and verification requirement. Purely atomic and for contact purposes.
+  contact_phone String
+  
+  /// Onboarding and operational status (pending, approved, rejected, suspended). Used for permission logic and admin review flows. Example: audit transitions, dashboard access.
+  status String
+  
+  /// Timestamp of seller account creation. For audit and compliance. Example: onboarding analytics.
+  created_at DateTime
+  
+  /// Timestamp of last seller account update. For audit, change tracking.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  aimall_backend_products aimall_backend_products[]
+  aimall_backend_orders aimall_backend_orders[]
+  
+  @@unique([email])
+  @@index([created_at])
+}
+
+/// Platform administrator entity - Implements the administrator user management and permission assignment requirement. Stores atomic data for each admin-level user with assigned permissions. Maintains 3NF by not mixing with seller/customer logic. Used for full or scoped admin access, activity logging, and audit traceability. Example: System operator signs in and manages sellers. Key relationships: references permissions entity for role assignments.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_administrators {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// References {@link aimall_backend_permissions.id} for assigned admin permission set. Enables hierarchical controls. For example: super admin vs. support admin.
+  permission_id String
+  
+  /// Administrator’s email address. Used for sign-in and notification. Must be unique. Normalized.
+  email String
+  
+  /// Administrator display name. Implements admin user naming requirement. Used for dashboard, audit logs. Kept atomic and normalized, not duplicated elsewhere.
+  name String
+  
+  /// Operational status (active, suspended, pending). Used for access gating and audit flows.
+  status String
+  
+  /// Creation date for admin account. Used for join analysis, audit trace.
+  created_at DateTime
+  
+  /// Last update timestamp.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  admin_permission aimall_backend_permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_support_tickets aimall_backend_support_tickets[]
+  aimall_backend_audit_logs aimall_backend_audit_logs[]
+  
+  @@index([permission_id])
+  
+  @@unique([email])
+  @@index([created_at])
+}
+
+/// Permission/role definition entity - Implements fine-grained and role-based permission requirements for sellers and administrators. Enables maintainable, extendable, reusable access control lists. Maintains full normalization; only the permission identity and description live here. Example: support admin, super admin, seller-inventory. Used as assignment in admin and seller models. Special behaviors: If altered, triggers audit trail. Relationship: referenced by administrator or seller for role mapping.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_permissions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Unique code or name for this permission/role (e.g., super_admin, seller_product_manager). Implements unique constraint for RBAC mapping. Maintains normalization; referenced only as foreign key.
+  name String
+  
+  /// Display name for UI/analytics. Used on dashboards. Not necessarily unique. Maintained separately from permission code for localization/flexibility.
+  display_name String
+  
+  /// Detailed explanation of what this permission grants. Used for system documentation, admin UX. Maintains atomicity by avoiding embedded business logic.
+  description String
+  
+  /// Permission definition created timestamp. Used for audit trail and change tracking.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  aimall_backend_administrators aimall_backend_administrators[]
+  
+  @@unique([name])
+}
+
+/// External identity account link - Implements federated login/OAuth requirements by tracking external provider identities (Google, Kakao, Apple, etc.) linked to primary AIMall customer accounts. Maintains strict normalization: all external linkage data is atomic and sits in this model, referenced from customers. Example: Single customer, multiple federated logins. Relationships: FK to aimall_backend_customers. Special behaviors: If deleted, only impacts authentications via provider.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_external_accounts {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged customer’s {@link aimall_backend_customers.id}. Links this external account to the internal primary customer.
+  customer_id String
+  
+  /// Identity provider code (e.g., google, kakao, apple). Enforces normalized provider codes for robust branching and validation. For example: login flow decision logic. Critical for OAuth mapping.
+  provider String
+  
+  /// External provider’s user ID string. Used to correlate federated identities. Example: store Google sub or Kakao id. Always atomic and never repeated.
+  external_user_id String
+  
+  /// Timestamp of account linkage. Enables audit trail for identity events. Used for UX (showing when account was linked).
+  linked_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  external_account_customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  @@unique([provider, external_user_id])
+  @@index([customer_id])
+}
+
+/// Per-customer behavioral tracking - Implements the session/activity tracking requirement. Stores API-driven customer events, preferences, and actions for AI, analytics, compliance. Ensures 3NF by isolating behavioral actions from static identity data. Example usage: shopping session event logs, personalization input. Relationship: links to customer. Special behaviors: May be periodically purged/anonymized for compliance. Used only for analytics/AIOps, never for business-critical identities.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_behavior_trackings {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Related customer’s {@link aimall_backend_customers.id}. Logs which customer generated the behavior.
+  customer_id String
+  
+  /// What user activity/event is being tracked (e.g., login, view_product, add_cart, checkout, search, recommend_click). Implements event-type requirement. Kept atomic as string code; normalization enforced. Used in analytics pipeline for behavior modeling.
+  event_type String
+  
+  /// Serialized payload describing the event more fully (JSON or similar). Contains atomic data, avoids schema transitive dependency. For example: product IDs, referer, AB test cohort.
+  event_data String
+  
+  /// Timestamp the event was logged. Implements audit and analytics timing. Used in analytics; always atomic.
+  occurred_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  behavior_tracking_customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  @@index([customer_id, occurred_at])
+}
+
+/// Customer delivery addresses - Implements the address management requirement, storing normalized and per-customer-linked delivery location data. Ensures all address data is atomic (split lines, etc) in full compliance with 3NF. Used for checkout, shipments, address book UX. Relationships: links customer. Special behaviors: Customers can have multiple addresses, with optional default flag. Deletion disables only for this customer.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_addresses {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Owner customer’s {@link aimall_backend_customers.id}. Allows associating multiple addresses per account, and enables easy lookup for checkout flows and address book UX.
+  customer_id String
+  
+  /// User-defined label for quick selection (e.g., 'Home', 'Office'). Implements per-customer usability. Fully atomic; not duplicated across tables. Used in address picker UX.
+  alias String
+  
+  /// Address recipient name (can differ from customer profile). Fulfills logistics requirement. Used when generating shipping labels. Always atomic.
+  recipient_name String
+  
+  /// Phone number for this address/recipient. Meets delivery carrier and communication needs. Fully atomic.
+  phone String
+  
+  /// Main line of street address/location. Split for normalization; no embedded logic. Used in shipping and verification.
+  address_line1 String
+  
+  /// Second line (optional, e.g., apartment/suite). Split for normalization; not duplicated. Optional for UX.
+  address_line2 String?
+  
+  /// City of the address. Used for logistics analysis; atomic for filtering/aggregation.
+  city String
+  
+  /// Postal/ZIP code. Maintains normalization, index for geo lookup.
+  postal_code String
+  
+  /// Country code or name. Normalized string for international handling; used for compliance/shipping.
+  country String
+  
+  /// True if this is the primary/default address for the customer. Implements default selection UX. Only one per customer can be true. Constraint enforced by application logic.
+  is_default Boolean
+  
+  /// When this address was last modified. Used for audit trail and UX.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  address_customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_orders aimall_backend_orders[]
+  aimall_backend_shipments aimall_backend_shipments[]
+  
+  @@index([customer_id])
+}

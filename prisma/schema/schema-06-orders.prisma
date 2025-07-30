@@ -1,0 +1,231 @@
+/// Order master record - This implements the foundational requirement from the Order and Delivery System for robust, scalable handling of customer orders from placement to fulfillment (Section 8/Order and Delivery). 
+///
+/// Tracks primary order business data for each customer order including status, seller linkage, total amounts, and audit timestamps. Maintains 3NF normalization by breaking out order items, payments, and shipments into separate tables. For example, one entry per completed order. 
+///
+/// Key relationships: links to customer (already in Actors), ships to one address, references associated order snapshots. Special behaviors: immutable after archival; only modifiable in allowed statuses; supports audit trail.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_orders {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged customer's {@link aimall_backend_customers.id}. Used to attribute each order to its owner in the Actors domain.
+  customer_id String
+  
+  /// Owning seller's {@link aimall_backend_sellers.id} for multi-vendor order scenarios.
+  seller_id String
+  
+  /// Delivery address for the order. References {@link aimall_backend_addresses.id} from Actors domain.
+  address_id String
+  
+  /// Unique, business-facing order number. Implements requirement for order tracking, customer communication, and admin search. Ensures normalization by keeping system-int/uuid as primary and a unique business string for reference. For example: 'ORD-20250729-0001'. Constraint: uniquely indexed.
+  order_number String
+  
+  /// Current order status (e.g., 'pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'). Implements fulfillment state machine; ensures normalization by using enumerative string. For example: 'paid'.
+  order_status String
+  
+  /// Total order amount at placement (snapshot of the customer-facing amount). Implements requirement for payment, reporting, and analysis. No auto-calc in table (all raw amounts). For example: 125000.00. Constraint: always >= 0.
+  total_amount Float
+  
+  /// Order currency code (e.g., 'KRW', 'USD'). Implements requirement to support multi-currency orders. Ensures normalization by storing ISO currency code. For example: 'KRW'. Applies to all order flows.
+  currency String
+  
+  /// Order creation timestamp. Implements requirement for auditability, KPI (order intake rate). Normalization is maintained as each event is atomic; non-derived. Example: '2025-07-29T15:45:40Z'.
+  created_at DateTime
+  
+  /// Last modification time for the order record. Implements audit and monitoring requirements. Usage: admin tracking, compliance. Not derived, always updated in place. Example: '2025-07-29T17:01:10Z'.
+  updated_at DateTime
+  
+  /// Timestamp when this order was marked as immutable/archived. Implements audit and compliance feature for order records lifecycle. Null if not archived. For example: null or '2025-07-30T10:37:20Z'.
+  archived_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  customer_to_orders aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  seller_to_orders aimall_backend_sellers @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  order_to_address aimall_backend_addresses @relation(fields: [address_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_order_items aimall_backend_order_items[]
+  aimall_backend_payments aimall_backend_payments[]
+  aimall_backend_shipments aimall_backend_shipments[]
+  aimall_backend_order_snapshots aimall_backend_order_snapshots[]
+  aimall_backend_loyalty_transactions aimall_backend_loyalty_transactions[]
+  aimall_backend_abuse_incidents aimall_backend_abuse_incidents[]
+  
+  @@index([address_id])
+  
+  @@unique([order_number])
+  @@index([customer_id, created_at])
+  @@index([seller_id])
+  @@index([order_status])
+}
+
+/// Order item line - This implements the detail breakdown for each product in an order, per the requirement that orders can contain multiple items (Section 8: multi-item, multi-seller order scenarios). 
+///
+/// Each record represents one product (SKU/option/bundle) purchased in the order, allowing for complete normalization without pre-aggregated data. Maintains 3NF: all variant, quantity, and item price data atomic. For example: an order with 2 different goods results in 2 rows here.
+///
+/// Key relationships: Belongs to an order, references a product and option from Products domain. Special behaviors: immutable after order is archived.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_order_items {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent order's {@link aimall_backend_orders.id}. Enforces relationship between line item and master order.
+  order_id String
+  
+  /// Purchased product's {@link aimall_backend_products.id} in Products domain. Ensures normalized reference.
+  product_id String
+  
+  /// Ordered product option's {@link aimall_backend_product_options.id}. Supports SKU/variant distinctions. Null if none (e.g. for base products).
+  product_option_id String?
+  
+  /// Display name of item at time of purchase. Implements snapshot of purchase detail per order, used for support, returns, and analytics. For example: 'AI Smart Speaker' (not a calc field, denormalized to support legal compliance on order receipts).
+  item_name String
+  
+  /// Ordered quantity for this item. Business meaning: inventory deduction, analytics, returns processing. For example: 2. Always positive integer.
+  quantity Int
+  
+  /// Unit price snapshot at purchase time. Fulfills critical requirement for audit trail, analytics, claims. Not a calc field—this field preserves item price history. For example: 59000.0.
+  unit_price Float
+  
+  /// Total price = unit_price * quantity at time of order. Snapshot requirement for precise reconciliation. Not a pre-calculated aggregate (single-item only). For example: 118000.0.
+  total_price Float
+  
+  //----
+  // RELATIONS
+  //----
+  order_to_order_items aimall_backend_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product_to_order_items aimall_backend_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  option_to_order_items aimall_backend_product_options? @relation(fields: [product_option_id], references: [id], onDelete: Cascade)
+  
+  @@index([product_option_id])
+  
+  @@index([order_id])
+  @@index([product_id])
+}
+
+/// Order payment transaction - Implements requirement for flexible, auditable order payments (Section 8 & Discount/Loyalty). Records each payment event tied to an order, including multiple forms (split payment, coupon, points). Maintains 3NF by itemizing each transaction event, never aggregating in-line to regular order tables. For example: an order with cash + points records two entries here. Key relationships: to order, and optionally, coupon/loyalty/discount entities in other domains. Special behaviors: amount integrity, immutable after completion, joinable via order_id.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_payments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// The order this payment is associated with. References {@link aimall_backend_orders.id}.
+  order_id String
+  
+  /// Payment channel/type used (e.g., 'credit_card', 'deposit', 'coupon', 'loyalty_points', 'virtual_account'). Implements requirement for multi-mode payments per order. Not a calculated or enum field, but controlled by business logic.
+  payment_method String
+  
+  /// Amount paid via this transaction. Implements requirement for sum-to-total integrity for each order. Use for audit/reconciliation. For example: 59100.0.
+  amount Float
+  
+  /// Payment currency code such as 'KRW', 'USD'. Implements multi-currency flexibility, maintains normalization. For example: 'KRW'.
+  currency String
+  
+  /// External payment processor's transaction or confirmation code. Implements traceability/chargebacks. May be nullable for internal balance, coupon cases. For example: 'PAY2025072900023'.
+  transaction_id String?
+  
+  /// Timestamp when this payment event was processed and confirmed. Auditable event. Example: '2025-07-29T16:44:51Z'.
+  paid_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  order_to_payments aimall_backend_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  
+  @@index([order_id])
+  @@index([transaction_id])
+}
+
+/// Shipment record for an order - Implements requirement for real-time order/delivery tracking and logistics integration (Section 8). Each record denotes shipment and delivery event for a part/all of an order. Maintains 3NF by separating shipment events from orders, allowing for multi-seller/partial-ship. For example: two shipments for split orders, or replacements. Key relationships: references order, shipment address (Actors), and shipper; can be joined via order_id for fulfillment queries. Special behaviors: immutable after delivery except for tracking updates.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_shipments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Linked order's {@link aimall_backend_orders.id}. Enforces relationship with primary order record.
+  order_id String
+  
+  /// Target delivery address for this shipment. References {@link aimall_backend_addresses.id}.
+  shipment_address_id String
+  
+  /// Shipping carrier name—recorded for handoff, customer service, compliance. Not a lookup or derived type; can be any contracted vendor name. For example: 'CJ Logistics'.
+  carrier String
+  
+  /// Carrier-provided tracking code. Key for customer tracking and support, audit logs. For example: '1Z9999Y70200370006', can be null for in-process or non-tracked deliveries.
+  tracking_number String?
+  
+  /// Current fulfillment status ('pending', 'shipped', 'delivered', etc.). Implements state machine for delivery steps.
+  shipment_status String
+  
+  /// Shipment departure timestamp from warehouse. Used for fulfillment metrics. Null if not shipped.
+  shipped_at DateTime?
+  
+  /// Final delivery confirmation timestamp. Used for SLAs, customer comms, audit trails. Null if not delivered yet.
+  delivered_at DateTime?
+  
+  /// Record creation timestamp for shipment event. For audit trail and logistics management. For example: '2025-07-29T16:32:00Z'.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  order_to_shipments aimall_backend_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  shipment_to_address aimall_backend_addresses @relation(fields: [shipment_address_id], references: [id], onDelete: Cascade)
+  
+  @@index([shipment_address_id])
+  
+  @@index([order_id])
+}
+
+/// Order state snapshot/audit trail - Implements snapshot-based pattern for order/invoice auditing and rollback (Section 8, System Overview, Technical+Compliance). Each entry is a full serialized snapshot of the order’s business state at a critical event (placement, modification, cancelation). Maintains 3NF by storing atomic, versioned snapshots tied to an order (never redundant calc/agg fields in main tables). For example: one entry at order creation, another on update/cancel. Key relationships: references order; supports audit/compliance. Special behaviors: append-only, never mutable/deletable except under strict retention policies.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_order_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// The underlying order being snapshotted {@link aimall_backend_orders.id}.
+  order_id String
+  
+  /// Categorizes snapshot event ('created', 'modified', 'cancelled', 'fulfilled', etc.). Used for auditability and compliance. For example: 'created'.
+  snapshot_type String
+  
+  /// Serialized JSON string of the full order record and related items/payments/shipments at this point in time. Implements snapshot/audit trail requirement. For example: '{...}' (not directly queryable fields; used for rollback/forensics).
+  snapshot_data String
+  
+  /// Time at which the snapshot was taken. Ensures correct event ordering (audit). For example: '2025-07-29T17:03:11Z'.
+  snapshot_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  order_to_snapshots aimall_backend_orders @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  
+  @@index([order_id])
+  @@index([snapshot_type])
+}

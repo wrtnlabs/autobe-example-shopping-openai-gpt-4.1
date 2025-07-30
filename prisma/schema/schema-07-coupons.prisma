@@ -1,0 +1,207 @@
+/// Coupon entity - This implements the requirements for coupon management and tracking as described in section 4 of the Discount & Loyalty System requirements.
+///
+/// Coupons are digital vouchers that can be issued system-wide or user-specific, usable for eligible orders and products. All instances of coupon issuance, unique code storage, status (issued, redeemed, expired, invalidated), and usage constraints are strictly tracked at this entity. Maintains 3NF compliance by referencing related campaigns or users via IDs, with no redundant storage or pre-computation. For example, the system records a unique row per issued coupon, capturing its single-use or multi-use state for audit and abuse prevention.
+///
+/// Key relationships: References the discount campaign and customer/user (from external actors) as the owner. May link to specific products or categories via foreign keys if necessary.
+/// Special behaviors: Unique coupon codes, strict status enumeration, and time-based validity are centrally enforced. No aggregate or computed fields, per normalization rules.
+///
+/// @namespace Coupons
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_coupons {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Uniquely identifies the coupon.
+  id String @id
+  
+  /// Belonged campaign's {@link aimall_backend_discount_campaigns.id}. Links coupon to its issuing campaign for rule tracking and analytics.
+  discount_campaign_id String
+  
+  /// Belonged customer's {@link aimall_backend_customers.id}. Tracks coupon assignment, redemption, and user-level eligibility. References already-existing customer entity in the actors domain.
+  customer_id String?
+  
+  /// Coupon code - Implements the requirement for per-coupon identification.
+  ///
+  /// A unique code assigned to each coupon, which users enter or that are validated automatically in checkout flows. Ensures normalization by storing only the code, not related details. Example: ABCD1234, UNIV2025. Uniqueness enforced at the database with a unique index.
+  code String
+  
+  /// Coupon status - Implements redemption and state-based business logic.
+  ///
+  /// Business meaning: Whether coupon is 'issued', 'redeemed', 'expired', or 'invalidated'. Ensures normalization: actual event details elsewhere. Example: Only one status value per coupon at any moment. Constraint: Acceptable values ('issued', 'redeemed', 'expired', 'invalidated') set by application logic.
+  status String
+  
+  /// Timestamp coupon was issued. Implements the issuance tracking part of requirements for audit. For example, tracks when the coupon became available. Required; not nullable.
+  issued_at DateTime
+  
+  /// Expiration timestamp - Implements the expiry control from coupon requirements.
+  ///
+  /// Defines when the coupon is no longer valid. For example, all redemptions after this point are denied. Ensures normalization by placing only atomic expiry data here.
+  expires_at DateTime
+  
+  /// Timestamp coupon was redeemed, if applicable - Implements requirement to audit all coupon lifecycle events.
+  ///
+  /// Example: Null until coupon is redeemed; filled when redeemed for traceability. Nullable as not all coupons will be redeemed.
+  redeemed_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  campaign_coupons aimall_backend_discount_campaigns @relation(fields: [discount_campaign_id], references: [id], onDelete: Cascade)
+  customer_coupons aimall_backend_customers? @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  aimall_backend_coupon_redemptions aimall_backend_coupon_redemptions[]
+  aimall_backend_loyalty_transactions aimall_backend_loyalty_transactions[]
+  aimall_backend_abuse_incidents aimall_backend_abuse_incidents[]
+  
+  @@unique([code])
+  @@index([discount_campaign_id])
+  @@index([customer_id])
+  @@index([status])
+  @@index([expires_at])
+}
+
+/// Discount Campaign entity - Implements discount rule and campaign management requirements described in section 4 of the Discount & Loyalty System requirements.
+///
+/// Discount campaigns group together sets of logic for applying discounts, coupon issuance parameters, stacking rules, and analytic tracking. A normalized (3NF) representation encapsulating start/end dates, rule definitions, stacking, and status but without summary/aggregate data.
+///
+/// For example, a campaign row controls: scope (order, product), stackable limit, usage limits, priority, etc. Campaign can be referenced by many coupons or redemptions but stores no pre-aggregated value.
+///
+/// Key relationships: One-to-many with coupons and redemptions.
+/// Special behaviors: Unique code and priority enforcement; snapshot references for rule versioning if changed.
+///
+/// @namespace Coupons
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_discount_campaigns {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Uniquely identifies the discount campaign.
+  id String @id
+  
+  /// Discount campaign name - Implements business-facing identification of campaigns.
+  ///
+  /// Clear, human-readable name for management and analytics. 3NF compliance: No description duplication. Example: 'New Year Sale 2025'.
+  name String
+  
+  /// Campaign code - Implements unique, system-handled identifier for programmatic logic and analytics.
+  ///
+  /// Unique string (often uppercase/slug) used for campaign referencing, stacking, and analytics. 3NF: No duplication. Example: 'NEWYEAR2025'. Database uniqueness enforced.
+  code String
+  
+  /// Campaign type - Implements logic for order/product scope and analytic reporting.
+  ///
+  /// Business meaning: whether discount is 'order', 'product', or other (application logic enumerates). Maintains normalization: actual logic flows elsewhere. Example value: 'order'.
+  type String
+  
+  /// Campaign status - Enables active/inactive flag and clean campaign lifecycle management.
+  ///
+  /// Examples: 'active', 'inactive', 'ended', etc. Maintains 3NF by not mixing with actual events.
+  status String
+  
+  /// Whether campaign can be stacked with others - Implements stacking/combination logic from requirements.
+  ///
+  /// True when combinable with other discounts, respecting stacking rules at checkout.
+  stackable Boolean
+  
+  /// Campaign start timestamp - Marks campaign activation for eligibility and analytics.
+  ///
+  /// Defines first moment of campaign eligibility for coupons/discounts. Required; not nullable. For example: '2025-01-01T00:00:00Z'.
+  start_at DateTime
+  
+  /// Campaign end timestamp - Marks campaign deactivation point and eligibility.
+  ///
+  /// Defines the last valid moment for coupon redemptions/discount application; no events after this point. Ensures correct time-bound logic.
+  end_at DateTime
+  
+  /// Maximum number of allowed uses per user - Implements usage limit logic per requirements.
+  ///
+  /// Integer; 0 or null means unlimited. Normalization: Only the atomic usage parameter, not aggregates. Example: 1 for single-use campaigns, 0 for unlimited. Application logic enforces the rule.
+  max_uses_per_user Int?
+  
+  /// Priority value - Implements campaign precedence in case of rule conflicts per requirements.
+  ///
+  /// Higher integer wins precedence; determines stacking/order during application. Normalized as atomic value only.
+  priority Int
+  
+  /// Long-form description for business or admin guidance - Implements documentation and operational guidance requirements.
+  ///
+  /// Example: 'Order-level campaign for new users; stackable with product level'. Not used for display to end customers. Nullable for minimal campaigns.
+  description String?
+  
+  //----
+  // RELATIONS
+  //----
+  aimall_backend_coupons aimall_backend_coupons[]
+  aimall_backend_coupon_redemptions aimall_backend_coupon_redemptions[]
+  aimall_backend_abuse_incidents aimall_backend_abuse_incidents[]
+  
+  @@unique([code])
+  @@index([status])
+  @@index([start_at, end_at])
+}
+
+/// Coupon Redemption entity - Implements detailed redemption/audit requirements in section 4 of Discount & Loyalty System, and supports full traceability and fraud prevention.
+///
+/// Each redemption row captures a single coupon redemption event (including success/failure), strictly separated from the coupon itself for normalization. Data here supports auditing, anti-abuse monitoring, and rollback processes.
+///
+/// For example, a redemption is recorded for each attempt (success/failure), including who attempted, what order/product was targeted, and timestamp of the attempt. Snapshots of this table support fraud trend analytics.
+///
+/// Key relationships: Coupon being redeemed, campaign involved (if applicable), customer performing redemption (actors).
+/// Special behaviors: No aggregate fields; atomic, one-event-per-row, supporting strict normalization.
+///
+/// @namespace Coupons
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model aimall_backend_coupon_redemptions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key. Uniquely identifies each coupon redemption event.
+  id String @id
+  
+  /// Redeemed coupon's {@link aimall_backend_coupons.id}.
+  ///
+  /// Defines which coupon was redeemed, ensuring referential integrity and enabling full redemption tracking.
+  coupon_id String
+  
+  /// Customer who performed redemption: references {@link aimall_backend_customers.id} in actors.
+  ///
+  /// Enables audit and anti-abuse analytics, linking redemptions to external users.
+  customer_id String
+  
+  /// Referenced campaign for reporting context: links to {@link aimall_backend_discount_campaigns.id}.
+  ///
+  /// Supports cases where redemption logic is context-sensitive to campaign rules.
+  discount_campaign_id String?
+  
+  /// Timestamp that redemption was attempted.
+  ///
+  /// Supports audit and anti-fraud logics; expected to be used in analytic materialized views. Required; not nullable.
+  redeemed_at DateTime
+  
+  /// Status of redemption attempt (success, failed, invalid, etc).
+  ///
+  /// Implements requirement to record all outcomes. Normalized by putting only status text, not aggregation. Application logic enumerates allowed values.
+  redemption_status String
+  
+  /// Order against which coupon was redeemed.
+  ///
+  /// Use case: anti-fraud, analytic tracking, rollback. Atomic data, normalization maintained. Can be null if redemption not tied to an order.
+  order_id String?
+  
+  /// Product against which coupon was redeemed.
+  ///
+  /// Used in single-product redemption scenarios. Nullable to allow broad campaign use; normalization kept by not mirroring product data here.
+  product_id String?
+  
+  //----
+  // RELATIONS
+  //----
+  coupon_coupon_redemptions aimall_backend_coupons @relation(fields: [coupon_id], references: [id], onDelete: Cascade)
+  customer_coupon_redemptions aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  campaign_coupon_redemptions aimall_backend_discount_campaigns? @relation(fields: [discount_campaign_id], references: [id], onDelete: Cascade)
+  
+  @@index([customer_id])
+  @@index([discount_campaign_id])
+  
+  @@index([coupon_id, customer_id, redeemed_at], map: "aimall_backend_coupon_redemptions_coupon_id_customer_i_0bf97d64")
+}
