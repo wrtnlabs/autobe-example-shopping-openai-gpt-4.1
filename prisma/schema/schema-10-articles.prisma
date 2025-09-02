@@ -1,0 +1,370 @@
+/// Holds core article content for community/post/notice board. Business
+/// entity for all user- and admin-generated long-form content, supporting
+/// publishing, editing, per-article moderation, cross-channel posting, and
+/// policy compliance. Related to comments, attachments, categories, tags,
+/// and has full versioning via snapshots.
+///
+/// @namespace Articles
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_articles {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Associated channel's {@link shopping_mall_ai_backend_channels.id}.
+  /// Determines which sales or content channel article belongs to.
+  channel_id String @db.Uuid
+  
+  /// Article title, used for navigation, search, and channel display. Must be
+  /// concise and business-relevant.
+  title String
+  
+  /// Main content body (supports multi-format text: markdown, HTML, plaintext).
+  body String
+  
+  /// Business author reference (admin, seller, or customer) as policy allows.
+  /// References user entity by type. Polymorphic but required (resolved in
+  /// business logic).
+  author_id String @db.Uuid
+  
+  /// Whether the article is pinned to the top (e.g., as announcement or
+  /// notice). Used by admins or sellers for channel comms.
+  pinned Boolean
+  
+  /// Publication status: e.g. draft, published, archived, hidden. Keeps
+  /// logical state for workflow control.
+  status String
+  
+  /// Number of times article has been viewed. Updated independently; not used
+  /// for materialized view in base table.
+  view_count Int @db.Integer
+  
+  /// Whether this article is a formal notice (shown in separate notice boards).
+  is_notice Boolean
+  
+  /// Creation timestamp. Used for sorting and audit.
+  created_at DateTime @db.Timestamptz
+  
+  /// Update timestamp, modified on every content or metadata update.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Logical deletion time (soft-delete). If null, record is active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  channel shopping_mall_ai_backend_channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_ai_backend_article_comments shopping_mall_ai_backend_article_comments[]
+  shopping_mall_ai_backend_article_tags shopping_mall_ai_backend_article_tags[]
+  shopping_mall_ai_backend_article_attachments shopping_mall_ai_backend_article_attachments[]
+  shopping_mall_ai_backend_article_snapshots shopping_mall_ai_backend_article_snapshots[]
+  shopping_mall_ai_backend_article_moderation_logs shopping_mall_ai_backend_article_moderation_logs[]
+  
+  @@unique([channel_id, title])
+  @@index([created_at])
+  @@index([status])
+  @@index([author_id])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Business entity for user-generated comments on articles. Each comment may
+/// have replies or be standalone. Requires moderation and audit.
+/// Cross-article search supported, e.g. by user or keyword.
+///
+/// @namespace Articles
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_article_comments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// The {@link shopping_mall_ai_backend_articles.id} this comment belongs to.
+  article_id String @db.Uuid
+  
+  /// Self-reference to parent comment for replies. Enables multi-depth
+  /// threads. Optional: root comments will be null.
+  parent_id String? @db.Uuid
+  
+  /// Commenting user's entity (customer/admin/seller as per policy).
+  author_id String @db.Uuid
+  
+  /// Comment content (plaintext or formatted as required).
+  body String
+  
+  /// Whether the comment is private/secret (e.g. Q&A only visible to
+  /// customer/seller/admins).
+  is_secret Boolean
+  
+  /// Moderation/publication status: e.g., visible, hidden, flagged.
+  status String
+  
+  /// Timestamp when comment was created.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp of last update.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Logical deletion for audit/evidence. If null comment is active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  article shopping_mall_ai_backend_articles @relation(fields: [article_id], references: [id], onDelete: Cascade)
+  parent shopping_mall_ai_backend_article_comments? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  author shopping_mall_ai_backend_customers @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  
+  recursive shopping_mall_ai_backend_article_comments[] @relation("recursive")
+  shopping_mall_ai_backend_article_attachments shopping_mall_ai_backend_article_attachments[]
+  shopping_mall_ai_backend_article_moderation_logs shopping_mall_ai_backend_article_moderation_logs[]
+  
+  @@index([parent_id])
+  
+  @@index([article_id, created_at], map: "shopping_mall_ai_backend_article_comments_article_id_c_4ae76cd9")
+  @@index([author_id, created_at], map: "shopping_mall_ai_backend_article_comments_author_id_cr_0b64b83a")
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Business taxonomy for organizing articles into hierarchical or flat
+/// categories. Used for filtering, navigation, and analytics. Each category
+/// can be top-level or nested. Centralized management.
+///
+/// @namespace Articles
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_article_categories {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Optional parent for hierarchical categories (self-reference). Enables
+  /// nesting (e.g. Announcement > Event).
+  parent_id String? @db.Uuid
+  
+  /// Channel to which this category belongs. Enables different category trees
+  /// by channel.
+  channel_id String @db.Uuid
+  
+  /// Category name, unique per channel tree.
+  name String
+  
+  /// Short description or guidelines about category purpose and scope.
+  description String?
+  
+  /// Sort order within sibling categories (for navigation menus etc.).
+  order Int @db.Integer
+  
+  /// Category creation time.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last update/modified date.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft-deleted time for audit; null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  parent shopping_mall_ai_backend_article_categories? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  
+  recursive shopping_mall_ai_backend_article_categories[] @relation("recursive")
+  
+  @@unique([channel_id, name])
+  @@index([parent_id])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Article tagging entity supporting flexible, multi-instance tagging. Tags
+/// can be managed as a controlled list or ad-hoc. Used for classification,
+/// navigation, and analytics; not a primary entity but supports many-to-many
+/// mapping.
+///
+/// @namespace Articles
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_article_tags {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// The {@link shopping_mall_ai_backend_articles.id} this tag is assigned to.
+  article_id String @db.Uuid
+  
+  /// Single tag text (e.g. 'FAQ', 'Update', 'Event'). Used for
+  /// navigation/analytics.
+  tag String
+  
+  //----
+  // RELATIONS
+  //----
+  article shopping_mall_ai_backend_articles @relation(fields: [article_id], references: [id], onDelete: Cascade)
+  
+  @@unique([article_id, tag])
+  @@index([tag(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// File/attachment entity for linking files to articles or comments. Holds
+/// reference to uploaded file metadata, enabling flexible file management
+/// for images or documents related to content. Managed only through parent
+/// entities (not standalone).
+///
+/// @namespace Articles
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_article_attachments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// The {@link shopping_mall_ai_backend_articles.id} this file is attached
+  /// to. Mutually exclusive with comment (one must be present).
+  article_id String? @db.Uuid
+  
+  /// The {@link shopping_mall_ai_backend_article_comments.id} comment this
+  /// attachment belongs to; for images/etc in discussions. Only one of
+  /// article/comment set.
+  comment_id String? @db.Uuid
+  
+  /// Actual attachment file's {@link shopping_mall_ai_backend_files.id}.
+  /// References physical file metadata managed by ops.
+  file_id String @db.Uuid
+  
+  /// Attachment registration time.
+  created_at DateTime @db.Timestamptz
+  
+  /// Logical deletion (if present, record is no longer visible).
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  article shopping_mall_ai_backend_articles? @relation(fields: [article_id], references: [id], onDelete: Cascade)
+  comment shopping_mall_ai_backend_article_comments? @relation(fields: [comment_id], references: [id], onDelete: Cascade)
+  file shopping_mall_ai_backend_files @relation(fields: [file_id], references: [id], onDelete: Cascade)
+  
+  @@index([article_id])
+  @@index([comment_id])
+  
+  @@index([file_id])
+}
+
+/// Immutable snapshots for all business state changes to articles. Every
+/// edit, publish, delete, etc. creates a full copy, enabling audit,
+/// rollback, and compliance evidence. Not directly user-editable. Used for
+/// legal, compliance, and business analysis.
+///
+/// @namespace Articles
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_article_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Target article's {@link shopping_mall_ai_backend_articles.id} at this
+  /// snapshot event.
+  article_id String @db.Uuid
+  
+  /// Business entity that triggered the snapshot (admin/customer/seller, as
+  /// allowed).
+  editor_id String @db.Uuid
+  
+  /// Title at the time of snapshot (immutable; preserved for evidence).
+  title String
+  
+  /// Content at time of snapshot (immutable full copy, includes all business
+  /// data for compliance/legal trace).
+  body String
+  
+  /// Publication status at the time of snapshot (e.g., draft, published,
+  /// archived).
+  status String
+  
+  /// Notice status as of snapshot (copied from article).
+  is_notice Boolean
+  
+  /// Pinned-flag, copied at time of snapshot; supports rollback/audit.
+  pinned Boolean
+  
+  /// Timestamp when snapshot created (event time, not original article time).
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  article shopping_mall_ai_backend_articles @relation(fields: [article_id], references: [id], onDelete: Cascade)
+  editor shopping_mall_ai_backend_admins @relation(fields: [editor_id], references: [id], onDelete: Cascade)
+  
+  @@index([editor_id])
+  
+  @@unique([article_id, created_at], map: "shopping_mall_ai_backend_article_snapshots_article_id__0c0cdcbb")
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Event log for all moderation, review, flagging, or compliance actions
+/// associated with articles or comments. Audit trail for interventions,
+/// supporting business/legal disputes. Each log may reference article or
+/// comment, or both, and records moderator who acted.
+///
+/// @namespace Articles
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_article_moderation_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Related article's {@link shopping_mall_ai_backend_articles.id}; may be
+  /// null if log relates to comment only.
+  article_id String? @db.Uuid
+  
+  /// Related comment's {@link shopping_mall_ai_backend_article_comments.id};
+  /// null unless event targeted at comment (vs article).
+  comment_id String? @db.Uuid
+  
+  /// Moderator/admin entity who performed moderation action.
+  moderator_id String @db.Uuid
+  
+  /// Describes moderation event (flagged, approved, removed, warned, restored
+  /// etc.)
+  action String
+  
+  /// Details for evidence: explicit reasoning, user report, compliance policy
+  /// etc.
+  reason String
+  
+  /// Optional reference to evidence file (if provided as proof, screenshot,
+  /// etc.).
+  evidence_file_id String? @db.Uuid
+  
+  /// Timestamp for moderation event.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  article shopping_mall_ai_backend_articles? @relation(fields: [article_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_article_moderation_logs_artic_576de358")
+  comment shopping_mall_ai_backend_article_comments? @relation(fields: [comment_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_article_moderation_logs_comme_5db76aff")
+  moderator shopping_mall_ai_backend_admins @relation(fields: [moderator_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_article_moderation_logs_moder_5a33d823")
+  
+  @@index([article_id], map: "shopping_mall_ai_backend_article_moderation_logs_artic_0e0d592c")
+  @@index([comment_id], map: "shopping_mall_ai_backend_article_moderation_logs_comme_559038e0")
+  
+  @@index([moderator_id], map: "shopping_mall_ai_backend_article_moderation_logs_moder_661e407c")
+  @@index([action(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([reason(ops: raw("gin_trgm_ops"))], type: Gin)
+}

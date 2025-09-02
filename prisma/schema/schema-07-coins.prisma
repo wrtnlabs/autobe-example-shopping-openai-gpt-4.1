@@ -1,0 +1,454 @@
+/// Represents the ledger of cash-like deposits for both customers and
+/// sellers. Tracks available balances, total accrued, and current state
+/// (e.g., usable, on hold, expired) for each account holder. Connects to
+/// detailed transaction and adjustment logs. Provides a core basis for
+/// refundable value holding and operational compliance. Related to {@link
+/// shopping_mall_ai_backend_deposit_transactions} and customer/seller
+/// tables.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_deposits {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Belonged customer's {@link shopping_mall_ai_backend_customers.id}. This
+  /// field is used for customer deposit ledgers.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Belonged seller's {@link shopping_mall_ai_backend_sellers.id}. This field
+  /// is used for seller deposit ledgers.
+  shopping_mall_ai_backend_seller_id String? @db.Uuid
+  
+  /// Cumulative cash (or equivalent) amount ever credited, including
+  /// expired/withdrawn funds.
+  total_accrued Float @db.DoublePrecision
+  
+  /// Current deposit balance available for use or withdrawal.
+  usable_balance Float @db.DoublePrecision
+  
+  /// Deposit value expired or lost and not available to user.
+  expired_balance Float @db.DoublePrecision
+  
+  /// Balance temporarily frozen due to withdrawal, incident, or review; not
+  /// available for use.
+  on_hold_balance Float @db.DoublePrecision
+  
+  /// Ledger creation timestamp for audit and evidence.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last ledger update timestamp for audit and evidence.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp; null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_deposits_shopping_mall_ai_bac_cbcecde6")
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [shopping_mall_ai_backend_seller_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_deposits_shopping_mall_ai_bac_1e4cb5ab")
+  
+  shopping_mall_ai_backend_deposit_transactions shopping_mall_ai_backend_deposit_transactions[]
+  shopping_mall_ai_backend_financial_incidents shopping_mall_ai_backend_financial_incidents[]
+  
+  @@unique([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_deposits_shopping_mall_ai_bac_48c0f8c0")
+  @@unique([shopping_mall_ai_backend_seller_id], map: "shopping_mall_ai_backend_deposits_shopping_mall_ai_bac_5e1c1481")
+  @@index([usable_balance])
+}
+
+/// Detailed log of all deposit changes including accrual, consumption,
+/// withdrawal, expiration, manual adjustments, and incident-related events.
+/// Ensures full auditability, enabling ledger reconciliation and business
+/// compliance. Each transaction references the linked ledger and
+/// user/seller, and keeps event context such as transaction type, reason,
+/// and audit trace.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_deposit_transactions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Reference to deposit ledger {@link shopping_mall_ai_backend_deposits.id}.
+  shopping_mall_ai_backend_deposit_id String @db.Uuid
+  
+  /// Linked customer {@link shopping_mall_ai_backend_customers.id}.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Linked seller {@link shopping_mall_ai_backend_sellers.id}.
+  shopping_mall_ai_backend_seller_id String? @db.Uuid
+  
+  /// Nature of transaction (e.g., accrual, usage, withdrawal, expire,
+  /// reversal, manual_adjustment, incident_lock, incident_unlock, etc.).
+  change_type String
+  
+  /// Amount changed in this transaction (positive for accrual, negative for
+  /// usage/expire).
+  amount Float @db.DoublePrecision
+  
+  /// External/internal reference code for audit/correlation (e.g., withdrawal
+  /// req, order id, etc.).
+  transaction_reference String?
+  
+  /// Ledger balance immediately before this transaction.
+  balance_before Float @db.DoublePrecision
+  
+  /// Ledger balance after this transaction is applied.
+  balance_after Float @db.DoublePrecision
+  
+  /// Business reason or outcome code for analytics/compliance.
+  reason_code String?
+  
+  /// Textual explanation/context for this transaction, for business review or
+  /// compliance.
+  description String?
+  
+  /// Transaction creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp; null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  deposit shopping_mall_ai_backend_deposits @relation(fields: [shopping_mall_ai_backend_deposit_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_deposit_transactions_shopping_fab9fbf6")
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_deposit_transactions_shopping_9e00b944")
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [shopping_mall_ai_backend_seller_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_deposit_transactions_shopping_075e0617")
+  
+  @@index([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_deposit_transactions_shopping_606b14ef")
+  @@index([shopping_mall_ai_backend_seller_id], map: "shopping_mall_ai_backend_deposit_transactions_shopping_ed4661c8")
+  
+  @@index([shopping_mall_ai_backend_deposit_id, created_at], map: "shopping_mall_ai_backend_deposit_transactions_shopping_85b9ba63")
+}
+
+/// Mileage (points/reward) ledger for customers and sellers. Tracks overall
+/// accruals, usable and expired balances, segmented by account holder.
+/// Enables membership, promotional, and event point management.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_mileages {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Customer who owns this mileage ledger. {@link
+  /// shopping_mall_ai_backend_customers.id}.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Seller who owns this mileage ledger. {@link
+  /// shopping_mall_ai_backend_sellers.id}.
+  shopping_mall_ai_backend_seller_id String? @db.Uuid
+  
+  /// Cumulative mileage/point credits (all-time) including expired/lost.
+  total_accrued Float @db.DoublePrecision
+  
+  /// Current mileage balance available for use.
+  usable_mileage Float @db.DoublePrecision
+  
+  /// Mileage value expired or deleted and not available to user.
+  expired_mileage Float @db.DoublePrecision
+  
+  /// Mileage temporarily frozen due to incident, claim, fraud, etc.
+  on_hold_mileage Float @db.DoublePrecision
+  
+  /// Ledger creation time for evidence/audit.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last ledger update time for evidence/audit.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp; null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_mileages_shopping_mall_ai_bac_ad2f3678")
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [shopping_mall_ai_backend_seller_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_mileages_shopping_mall_ai_bac_fa7447d5")
+  
+  shopping_mall_ai_backend_cart_mileage_usages shopping_mall_ai_backend_cart_mileage_usages[]
+  shopping_mall_ai_backend_mileage_transactions shopping_mall_ai_backend_mileage_transactions[]
+  shopping_mall_ai_backend_financial_incidents shopping_mall_ai_backend_financial_incidents[]
+  
+  @@unique([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_mileages_shopping_mall_ai_bac_d41b9810")
+  @@unique([shopping_mall_ai_backend_seller_id], map: "shopping_mall_ai_backend_mileages_shopping_mall_ai_bac_c12d7291")
+  @@index([usable_mileage])
+}
+
+/// Audit log of all mileage (point) ledger modifications, including
+/// accruals, usage, expirations, manual/admin adjustments, and
+/// incident-driven events. Each record preserves ledger state change and
+/// rationale context.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_mileage_transactions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Associated mileage ledger {@link shopping_mall_ai_backend_mileages.id}.
+  shopping_mall_ai_backend_mileage_id String @db.Uuid
+  
+  /// Customer associated to this transaction. {@link
+  /// shopping_mall_ai_backend_customers.id}.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Seller associated to this transaction. {@link
+  /// shopping_mall_ai_backend_sellers.id}.
+  shopping_mall_ai_backend_seller_id String? @db.Uuid
+  
+  /// Action performed (e.g., accrual, use, expire, reversal, admin_adjust,
+  /// incident_freeze, incident_release, donation, etc.).
+  change_type String
+  
+  /// Value changed in this transaction (positive for accrual, negative for
+  /// usage/loss/expire).
+  amount Float @db.DoublePrecision
+  
+  /// Internal/external reference (order, refund, gift, campaign, etc.).
+  transaction_reference String?
+  
+  /// Ledger balance before transaction.
+  mileage_before Float @db.DoublePrecision
+  
+  /// Ledger balance after transaction.
+  mileage_after Float @db.DoublePrecision
+  
+  /// Business/process reason for audit analytics.
+  reason_code String?
+  
+  /// Narrative for this specific transaction (for compliance or analytics).
+  description String?
+  
+  /// Transaction creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp, null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  mileage shopping_mall_ai_backend_mileages @relation(fields: [shopping_mall_ai_backend_mileage_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_mileage_transactions_shopping_9db9f71c")
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_mileage_transactions_shopping_9a094b12")
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [shopping_mall_ai_backend_seller_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_mileage_transactions_shopping_ccd88e77")
+  
+  @@index([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_mileage_transactions_shopping_6d2182b5")
+  @@index([shopping_mall_ai_backend_seller_id], map: "shopping_mall_ai_backend_mileage_transactions_shopping_33ccd0cd")
+  
+  @@index([shopping_mall_ai_backend_mileage_id, created_at], map: "shopping_mall_ai_backend_mileage_transactions_shopping_849c4a26")
+}
+
+/// Digital coin ledger for both users and sellers. Tracks coin accrual,
+/// usage, on-hold coins, and expired/lost events. Often used for
+/// promotional, wallet, or special event non-fiat value operations.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_coins {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Owner customer {@link shopping_mall_ai_backend_customers.id}.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Owner seller {@link shopping_mall_ai_backend_sellers.id}.
+  shopping_mall_ai_backend_seller_id String? @db.Uuid
+  
+  /// Sum of all coins ever granted/accrued (regardless of use or expiration).
+  total_accrued Float @db.DoublePrecision
+  
+  /// Currently available coin balance for the owner.
+  usable_coin Float @db.DoublePrecision
+  
+  /// Value of coins expired/unavailable to the user.
+  expired_coin Float @db.DoublePrecision
+  
+  /// Coin value temporarily unavailable due to withdrawal, dispute, or
+  /// compliance.
+  on_hold_coin Float @db.DoublePrecision
+  
+  /// Ledger creation time for compliance/evidence.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last update timestamp for compliance/evidence.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp; null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_coins_shopping_mall_ai_backen_c0d987f0")
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [shopping_mall_ai_backend_seller_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_coins_shopping_mall_ai_backen_9661d84f")
+  
+  shopping_mall_ai_backend_coin_transactions shopping_mall_ai_backend_coin_transactions[]
+  shopping_mall_ai_backend_financial_incidents shopping_mall_ai_backend_financial_incidents[]
+  
+  @@unique([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_coins_shopping_mall_ai_backen_5444cf42")
+  @@unique([shopping_mall_ai_backend_seller_id], map: "shopping_mall_ai_backend_coins_shopping_mall_ai_backen_d486d131")
+  @@index([usable_coin])
+}
+
+/// Comprehensive ledger audit entries for all coin changes, including
+/// accrual, expenditure, manual/admin adjustment, incident freeze/unfreeze,
+/// event distributions, and expiration. Tracks before/after coin values and
+/// process context for evidence.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_coin_transactions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Target coin ledger {@link shopping_mall_ai_backend_coins.id}.
+  shopping_mall_ai_backend_coin_id String @db.Uuid
+  
+  /// Associated customer, nullable.{@link
+  /// shopping_mall_ai_backend_customers.id}.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Associated seller, nullable.{@link shopping_mall_ai_backend_sellers.id}.
+  shopping_mall_ai_backend_seller_id String? @db.Uuid
+  
+  /// Event for this transaction (e.g., accrue, use, expire, reversal,
+  /// admin_adjust, incident_hold, incident_release, etc.).
+  change_type String
+  
+  /// Value changed in this action (positive or negative by context).
+  amount Float @db.DoublePrecision
+  
+  /// Reference to related order, event, gift, etc.
+  transaction_reference String?
+  
+  /// Coin balance before this transaction.
+  coin_before Float @db.DoublePrecision
+  
+  /// Coin balance after transaction.
+  coin_after Float @db.DoublePrecision
+  
+  /// Process/business code for this event type.
+  reason_code String?
+  
+  /// Business explanation for evidence/analytics.
+  description String?
+  
+  /// Transaction creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp, null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  coin shopping_mall_ai_backend_coins @relation(fields: [shopping_mall_ai_backend_coin_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_coin_transactions_shopping_ma_7756024d")
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_coin_transactions_shopping_ma_52294556")
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [shopping_mall_ai_backend_seller_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_coin_transactions_shopping_ma_7c84b93d")
+  
+  @@index([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_coin_transactions_shopping_ma_cee21197")
+  @@index([shopping_mall_ai_backend_seller_id], map: "shopping_mall_ai_backend_coin_transactions_shopping_ma_74017afe")
+  
+  @@index([shopping_mall_ai_backend_coin_id, created_at], map: "shopping_mall_ai_backend_coin_transactions_shopping_ma_3a9d760d")
+}
+
+/// Incident, anomaly, or audit/investigatory event log related to deposit,
+/// mileage, or coin ledgers. Captures all cases of suspected fraud,
+/// unauthorized usage, reversals, compliance freezes, or business-side
+/// ledger investigation. Ensures audit trail for financial events with
+/// business or legal impact.
+///
+/// @namespace Coins
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_financial_incidents {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Related deposit ledger involved in this incident. Nullable if not
+  /// deposit-linked. {@link shopping_mall_ai_backend_deposits.id}.
+  shopping_mall_ai_backend_deposit_id String? @db.Uuid
+  
+  /// Related mileage ledger involved in this incident. Nullable if not
+  /// mileage-linked. {@link shopping_mall_ai_backend_mileages.id}.
+  shopping_mall_ai_backend_mileage_id String? @db.Uuid
+  
+  /// Related coin ledger involved in this incident. Nullable if not
+  /// coin-linked. {@link shopping_mall_ai_backend_coins.id}.
+  shopping_mall_ai_backend_coin_id String? @db.Uuid
+  
+  /// Associated customer if relevant. Nullable. {@link
+  /// shopping_mall_ai_backend_customers.id}.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Associated seller if relevant. Nullable. {@link
+  /// shopping_mall_ai_backend_sellers.id}.
+  shopping_mall_ai_backend_seller_id String? @db.Uuid
+  
+  /// Type/category of incident (e.g., fraud, reversal, compliance_audit,
+  /// withdrawal_dispute, manual_freeze, system_error, anomaly_detection,
+  /// etc.).
+  incident_type String
+  
+  /// Current status (open, investigating, closed, resolved, reversed, etc.).
+  status String
+  
+  /// Narrative business/context details of this incident. For compliance and
+  /// root cause review.
+  details String
+  
+  /// Correlator/reference to external systems, event logs, or legal/insurance
+  /// process.
+  external_reference String?
+  
+  /// Incident started/recorded timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Resolution time if closed; null if still open/ongoing.
+  resolved_at DateTime? @db.Timestamptz
+  
+  /// Soft deletion timestamp; null if still valid.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  deposit shopping_mall_ai_backend_deposits? @relation(fields: [shopping_mall_ai_backend_deposit_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_financial_incidents_shopping__9881f848")
+  mileage shopping_mall_ai_backend_mileages? @relation(fields: [shopping_mall_ai_backend_mileage_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_financial_incidents_shopping__e012a599")
+  coin shopping_mall_ai_backend_coins? @relation(fields: [shopping_mall_ai_backend_coin_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_financial_incidents_shopping__f6768b6b")
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_financial_incidents_shopping__de85fff5")
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [shopping_mall_ai_backend_seller_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_financial_incidents_shopping__0b67c2f1")
+  
+  @@index([shopping_mall_ai_backend_deposit_id], map: "shopping_mall_ai_backend_financial_incidents_shopping__d9d4f7a4")
+  @@index([shopping_mall_ai_backend_mileage_id], map: "shopping_mall_ai_backend_financial_incidents_shopping__fec36cc1")
+  @@index([shopping_mall_ai_backend_coin_id], map: "shopping_mall_ai_backend_financial_incidents_shopping__3dec2e1c")
+  @@index([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_financial_incidents_shopping__ab3665c1")
+  @@index([shopping_mall_ai_backend_seller_id], map: "shopping_mall_ai_backend_financial_incidents_shopping__07048704")
+  
+  @@index([incident_type])
+  @@index([status])
+  @@index([details(ops: raw("gin_trgm_ops"))], type: Gin)
+}

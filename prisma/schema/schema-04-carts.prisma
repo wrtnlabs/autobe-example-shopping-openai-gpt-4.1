@@ -1,0 +1,264 @@
+/// Represents the customer's shopping cart for any active session or channel
+/// (guest/member/linked session). Tracks current cart status, associated
+/// customer/session reference, and captures any detailed cart-note, coupon,
+/// mileage, or deposit status in real time. Critical as mutable pre-order
+/// record but uniquely preserved through immutable snapshots for
+/// audit/evidence. Users manage, merge, or clear carts independently per
+/// channel/session context. Supports omnichannel transfer.
+///
+/// @namespace Carts
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_carts {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Linked customer's {@link shopping_mall_ai_backend_customers.id}. Null for
+  /// guest, required for member.
+  shopping_mall_ai_backend_customer_id String? @db.Uuid
+  
+  /// Current active session's {@link
+  /// shopping_mall_ai_backend_customer_sessions.id}. Null if persistent cart
+  /// not linked to a specific session.
+  shopping_mall_ai_backend_customer_session_id String? @db.Uuid
+  
+  /// Opaque unique ID for cart. Used to re-link carts across devices or for
+  /// guest workflows.
+  cart_token String
+  
+  /// Cart lifecycle status (e.g. active, submitted, merged, cleared,
+  /// abandoned).
+  status String
+  
+  /// Cart expiration datetime (for auto-clear, guest, or session rules).
+  expires_at DateTime? @db.Timestamptz
+  
+  /// Datetime this cart was last merged with another cart (for omnichannel
+  /// workflows).
+  last_merged_at DateTime? @db.Timestamptz
+  
+  /// Customer's or business's cart note, instruction, or memo. Searchable
+  /// field.
+  note String?
+  
+  /// Creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last update timestamp.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp for evidence trail.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_ai_backend_customers? @relation(fields: [shopping_mall_ai_backend_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_carts_shopping_mall_ai_backen_13deb3f2")
+  customerSession shopping_mall_ai_backend_customer_sessions? @relation(fields: [shopping_mall_ai_backend_customer_session_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_carts_shopping_mall_ai_backen_04c36568")
+  
+  shopping_mall_ai_backend_cart_items shopping_mall_ai_backend_cart_items[]
+  shopping_mall_ai_backend_cart_coupon_usages shopping_mall_ai_backend_cart_coupon_usages[]
+  shopping_mall_ai_backend_cart_mileage_usages shopping_mall_ai_backend_cart_mileage_usages[]
+  
+  @@index([shopping_mall_ai_backend_customer_session_id], map: "shopping_mall_ai_backend_carts_shopping_mall_ai_backen_13e5dd25")
+  
+  @@unique([cart_token])
+  @@index([shopping_mall_ai_backend_customer_id], map: "shopping_mall_ai_backend_carts_shopping_mall_ai_backen_42da4324")
+  @@index([status])
+  @@index([created_at])
+  @@index([note(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Individual and option-specific product items in a cart. Each record holds
+/// selection quantity, attached options, and referential snapshot pointer.
+/// Required for precise item, bundle, and variant management prior to
+/// checkout. Editable by the user per cart context. Historical traces and
+/// adjustments are preserved through linked snapshots.
+///
+/// @namespace Carts
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_cart_items {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Parent cart's {@link shopping_mall_ai_backend_carts.id}.
+  shopping_mall_ai_backend_cart_id String @db.Uuid
+  
+  /// Product snapshot's {@link shopping_mall_ai_backend_product_snapshots.id}
+  /// for price, title, attributes at time of add-to-cart.
+  shopping_mall_ai_backend_product_snapshot_id String @db.Uuid
+  
+  /// Quantity for this item (minimum 1 per business policy).
+  quantity Int @db.Integer
+  
+  /// Aggregate code for option/variant selection (from product option units,
+  /// enables unique constraint for per-product/item options).
+  option_code String
+  
+  /// Product bundle code if selected (nullable if not used).
+  bundle_code String?
+  
+  /// Customer's note for this cart item (e.g. gift, details). Searchable field.
+  note String?
+  
+  /// Creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last update timestamp.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  cart shopping_mall_ai_backend_carts @relation(fields: [shopping_mall_ai_backend_cart_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_cart_items_shopping_mall_ai_b_36f731b9")
+  productSnapshot shopping_mall_ai_backend_product_snapshots @relation(fields: [shopping_mall_ai_backend_product_snapshot_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_cart_items_shopping_mall_ai_b_c496e45b")
+  
+  shopping_mall_ai_backend_cart_item_snapshots shopping_mall_ai_backend_cart_item_snapshots[]
+  
+  @@index([shopping_mall_ai_backend_product_snapshot_id], map: "shopping_mall_ai_backend_cart_items_shopping_mall_ai_b_ad9d0343")
+  
+  @@unique([shopping_mall_ai_backend_cart_id, shopping_mall_ai_backend_product_snapshot_id, option_code, bundle_code], map: "shopping_mall_ai_backend_cart_items_shopping_mall_ai_b_14b4832c")
+  @@index([shopping_mall_ai_backend_cart_id], map: "shopping_mall_ai_backend_cart_items_shopping_mall_ai_b_94f02df8")
+  @@index([created_at])
+  @@index([note(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Immutable snapshot of all cart item details at each add/edit/remove
+/// event, for business evidence and audit. Stores all relevant business
+/// fields, referential link to both original cart item and snapshot data,
+/// and a timestamp of when the snapshot was recorded. Ensures evidence
+/// preservation if cart or item is later edited or deleted.
+///
+/// @namespace Carts
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_cart_item_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Cart item's {@link shopping_mall_ai_backend_cart_items.id} being
+  /// snapshotted.
+  shopping_mall_ai_backend_cart_item_id String @db.Uuid
+  
+  /// Serialized (JSON/text) snapshot of all cart item business fields for
+  /// precise historical evidence. Not for query logic.
+  snapshot_data String
+  
+  /// Snapshot creation reason (add, update, remove, merge, manual, evidence,
+  /// etc).
+  reason String
+  
+  /// Snapshot creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  cartItem shopping_mall_ai_backend_cart_items @relation(fields: [shopping_mall_ai_backend_cart_item_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_cart_item_snapshots_shopping__c4e19278")
+  
+  @@index([shopping_mall_ai_backend_cart_item_id], map: "shopping_mall_ai_backend_cart_item_snapshots_shopping__53644ee3")
+  @@index([created_at])
+}
+
+/// Per-cart usage log for all applied coupons, including time of
+/// application, validation status, and associated business rules. Tied to
+/// cart (not global basket) to ensure compliance with coupon stacking,
+/// exclusivity, order, eligibility, and evidence trace. May have more than
+/// one per cart, depending on business constraints.
+///
+/// @namespace Carts
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_cart_coupon_usages {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Applied on related cart's {@link shopping_mall_ai_backend_carts.id}.
+  shopping_mall_ai_backend_cart_id String @db.Uuid
+  
+  /// Applied coupon's {@link shopping_mall_ai_backend_coupons.id}.
+  shopping_mall_ai_backend_coupon_id String @db.Uuid
+  
+  /// Datetime coupon was applied to this cart.
+  applied_at DateTime @db.Timestamptz
+  
+  /// Current validation/application status (active, locked, rejected, used,
+  /// etc.)
+  status String
+  
+  /// Label for stacking logic group (if stacking/exclusivity policy applies).
+  stack_group String?
+  
+  /// Admin/business note for coupon usage.
+  note String?
+  
+  //----
+  // RELATIONS
+  //----
+  cart shopping_mall_ai_backend_carts @relation(fields: [shopping_mall_ai_backend_cart_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_cart_coupon_usages_shopping_m_ef214410")
+  coupon shopping_mall_ai_backend_coupons @relation(fields: [shopping_mall_ai_backend_coupon_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_cart_coupon_usages_shopping_m_533b96f3")
+  
+  @@index([shopping_mall_ai_backend_cart_id], map: "shopping_mall_ai_backend_cart_coupon_usages_shopping_m_33e97582")
+  @@index([shopping_mall_ai_backend_coupon_id], map: "shopping_mall_ai_backend_cart_coupon_usages_shopping_m_a6b538dd")
+  @@index([applied_at])
+}
+
+/// Cart-level historical log of all mileage (point) accrual or consumption
+/// events tied to this cart, including validation, redemption, and evidence
+/// of application. Subsidiary to the cart, but required for audit and
+/// compliance (e.g., only redeemable once per line, balance checks). All
+/// business constraints logged; supports composite queries for fraud or
+/// reward optimization.
+///
+/// @namespace Carts
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_cart_mileage_usages {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Applied on related cart's {@link shopping_mall_ai_backend_carts.id}.
+  shopping_mall_ai_backend_cart_id String @db.Uuid
+  
+  /// Linked mileage balance's {@link shopping_mall_ai_backend_mileages.id}.
+  shopping_mall_ai_backend_mileage_id String @db.Uuid
+  
+  /// Mileage (points) used or accrued. Negative for redemption, positive for
+  /// accrual.
+  used_amount Float @db.DoublePrecision
+  
+  /// Business reason for mileage usage or accrual (e.g., redeem, bonus,
+  /// policy).
+  reason String
+  
+  /// Datetime of usage/accrual event.
+  applied_at DateTime @db.Timestamptz
+  
+  /// Admin/business note for this transaction.
+  note String?
+  
+  //----
+  // RELATIONS
+  //----
+  cart shopping_mall_ai_backend_carts @relation(fields: [shopping_mall_ai_backend_cart_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_cart_mileage_usages_shopping__df0feb7a")
+  mileage shopping_mall_ai_backend_mileages @relation(fields: [shopping_mall_ai_backend_mileage_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_cart_mileage_usages_shopping__f16d77a6")
+  
+  @@index([shopping_mall_ai_backend_mileage_id], map: "shopping_mall_ai_backend_cart_mileage_usages_shopping__b4796725")
+  
+  @@index([shopping_mall_ai_backend_cart_id], map: "shopping_mall_ai_backend_cart_mileage_usages_shopping__3b63a73a")
+  @@index([applied_at])
+}

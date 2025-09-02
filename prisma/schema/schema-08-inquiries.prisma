@@ -1,0 +1,385 @@
+/// Represents inquiries raised by customers or sellers about products,
+/// orders, deliveries, or general topics. Supports privacy level
+/// (public/private), ownership by customer or seller, ties to relevant
+/// product/order, visibility controls, and workflow status. Serves as the
+/// main entity for buyer-seller-admin engagement and evidence in dispute
+/// resolution. Snapshots and moderation logs reference this entity.
+///
+/// @namespace Inquiries
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_inquiries {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Inquiry owner's {@link shopping_mall_ai_backend_customers.id}. May be
+  /// null for non-customer inquiries.
+  customer_id String? @db.Uuid
+  
+  /// Inquiry owner's {@link shopping_mall_ai_backend_sellers.id}. Null for
+  /// customer inquiries.
+  seller_id String? @db.Uuid
+  
+  /// Product related to the inquiry. {@link
+  /// shopping_mall_ai_backend_products.id}. Nullable for non-product
+  /// inquiries.
+  product_id String? @db.Uuid
+  
+  /// Order related to the inquiry. {@link shopping_mall_ai_backend_orders.id}.
+  /// Nullable for inquiries not about specific order.
+  order_id String? @db.Uuid
+  
+  /// Inquiry subject or summary line.
+  title String
+  
+  /// Full inquiry content, typically user question or statement.
+  body String
+  
+  /// Whether the inquiry is private (visible only to owner and target) or
+  /// public.
+  private Boolean
+  
+  /// Inquiry workflow status (e.g., open, answered, closed,
+  /// pending_moderation, rejected).
+  status String
+  
+  /// Timestamp when inquiry was closed or resolved.
+  closed_at DateTime? @db.Timestamptz
+  
+  /// Timestamp this inquiry was authored.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp of last update to inquiry.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Timestamp when inquiry was marked deleted (soft delete), nullable.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_ai_backend_customers? @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  product shopping_mall_ai_backend_products? @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  order shopping_mall_ai_backend_orders? @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_ai_backend_inquiry_replies shopping_mall_ai_backend_inquiry_replies[]
+  shopping_mall_ai_backend_inquiry_snapshots shopping_mall_ai_backend_inquiry_snapshots[]
+  shopping_mall_ai_backend_inquiry_abuse_reports shopping_mall_ai_backend_inquiry_abuse_reports[]
+  shopping_mall_ai_backend_inquiry_moderation_events shopping_mall_ai_backend_inquiry_moderation_events[]
+  shopping_mall_ai_backend_inquiry_faq_suggestions shopping_mall_ai_backend_inquiry_faq_suggestions[]
+  shopping_mall_ai_backend_favorite_inquiries shopping_mall_ai_backend_favorite_inquiries[]
+  
+  @@index([seller_id])
+  
+  @@unique([customer_id, seller_id, product_id, order_id, title, body, created_at], map: "shopping_mall_ai_backend_inquiries_customer_id_seller__9c5032e5")
+  @@index([product_id, created_at])
+  @@index([order_id])
+  @@index([status, created_at])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Represents threaded replies (answers, follow-ups, clarifications) to
+/// inquiries. Supports nested structure through parent_id self-reference,
+/// attribution to customer or seller, visibility (private/public), and
+/// evidence trails. Requires independent search and management across all
+/// inquiries.
+///
+/// @namespace Inquiries
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_inquiry_replies {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Replied inquiry's {@link shopping_mall_ai_backend_inquiries.id}.
+  inquiry_id String @db.Uuid
+  
+  /// Parent reply's {@link shopping_mall_ai_backend_inquiry_replies.id} for
+  /// nested thread replies. Null for top-level.
+  parent_id String? @db.Uuid
+  
+  /// Reply author's {@link shopping_mall_ai_backend_customers.id}. May be null
+  /// for seller replies.
+  customer_id String? @db.Uuid
+  
+  /// Reply author's {@link shopping_mall_ai_backend_sellers.id}. Null for
+  /// customer replies.
+  seller_id String? @db.Uuid
+  
+  /// Reply content.
+  body String
+  
+  /// Whether the reply is private (visible only to owner and counterpart) or
+  /// public.
+  private Boolean
+  
+  /// Timestamp when reply was created.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp of last update to reply.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Timestamp if reply was soft deleted.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  inquiry shopping_mall_ai_backend_inquiries @relation(fields: [inquiry_id], references: [id], onDelete: Cascade)
+  parent shopping_mall_ai_backend_inquiry_replies? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  customer shopping_mall_ai_backend_customers? @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_ai_backend_sellers? @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  
+  recursive shopping_mall_ai_backend_inquiry_replies[] @relation("recursive")
+  shopping_mall_ai_backend_inquiry_snapshots shopping_mall_ai_backend_inquiry_snapshots[]
+  shopping_mall_ai_backend_inquiry_abuse_reports shopping_mall_ai_backend_inquiry_abuse_reports[]
+  shopping_mall_ai_backend_inquiry_moderation_events shopping_mall_ai_backend_inquiry_moderation_events[]
+  
+  @@index([parent_id])
+  @@index([customer_id])
+  @@index([seller_id])
+  
+  @@unique([inquiry_id, parent_id, body, created_at], map: "shopping_mall_ai_backend_inquiry_replies_inquiry_id_pa_415833eb")
+  @@index([inquiry_id, created_at], map: "shopping_mall_ai_backend_inquiry_replies_inquiry_id_cr_771a86dc")
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Captures immutable historical copies of inquiries and their replies for
+/// evidence, audit, and compliance. Each record represents a past state,
+/// generated on create, update, delete, or status change, and linked to the
+/// original entity. Crucial for dispute resolution and regulatory
+/// requirements.
+///
+/// @namespace Inquiries
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_inquiry_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Snapshot target inquiry's {@link shopping_mall_ai_backend_inquiries.id}.
+  inquiry_id String @db.Uuid
+  
+  /// Snapshot target reply's {@link
+  /// shopping_mall_ai_backend_inquiry_replies.id}, nullable if the snapshot is
+  /// for the inquiry itself.
+  reply_id String? @db.Uuid
+  
+  /// (Resolved) inquiry title at time of snapshot.
+  title String?
+  
+  /// (Resolved) inquiry or reply body at time of snapshot.
+  body String?
+  
+  /// Privacy flag at time of snapshot.
+  private Boolean?
+  
+  /// Status (open/closed/etc) at time of snapshot.
+  status String?
+  
+  /// Closed at (if applicable) at snapshot point.
+  closed_at DateTime? @db.Timestamptz
+  
+  /// Type of author (customer/seller/admin/system) at snapshot point.
+  author_type String?
+  
+  /// Timestamp when this snapshot was created.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  inquiry shopping_mall_ai_backend_inquiries @relation(fields: [inquiry_id], references: [id], onDelete: Cascade)
+  reply shopping_mall_ai_backend_inquiry_replies? @relation(fields: [reply_id], references: [id], onDelete: Cascade)
+  
+  @@index([reply_id])
+  
+  @@index([inquiry_id, created_at], map: "shopping_mall_ai_backend_inquiry_snapshots_inquiry_id__20b6a99b")
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Stores user-submitted abuse or violation reports against inquiries or
+/// replies. Includes linkage to reporting customer, to admin reviewer
+/// handling the report, timestamps, status, and references to the
+/// inquiry/reply in question. Enables abuse detection, moderation, and audit
+/// evidence.
+///
+/// @namespace Inquiries
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_inquiry_abuse_reports {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Reporting individual's {@link shopping_mall_ai_backend_customers.id}.
+  reporter_customer_id String @db.Uuid
+  
+  /// Subject inquiry's {@link shopping_mall_ai_backend_inquiries.id}.
+  inquiry_id String? @db.Uuid
+  
+  /// Subject reply's {@link shopping_mall_ai_backend_inquiry_replies.id},
+  /// nullable if abuse report is about inquiry only.
+  reply_id String? @db.Uuid
+  
+  /// Admin reviewer assigned to handle this report. {@link
+  /// shopping_mall_ai_backend_admins.id}.
+  admin_id String? @db.Uuid
+  
+  /// Report details provided by reporter (freeform).
+  reason String
+  
+  /// Report workflow status (open, under_review, resolved, rejected, closed).
+  status String
+  
+  /// Closure timestamp for resolved/closed reports.
+  closed_at DateTime? @db.Timestamptz
+  
+  /// Timestamp when report was submitted.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp when report was last updated.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Timestamp of report deletion (nullable).
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  reporterCustomer shopping_mall_ai_backend_customers @relation(fields: [reporter_customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_inquiry_abuse_reports_reporte_3243ad3b")
+  inquiry shopping_mall_ai_backend_inquiries? @relation(fields: [inquiry_id], references: [id], onDelete: Cascade)
+  reply shopping_mall_ai_backend_inquiry_replies? @relation(fields: [reply_id], references: [id], onDelete: Cascade)
+  admin shopping_mall_ai_backend_admins? @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_ai_backend_inquiry_moderation_events shopping_mall_ai_backend_inquiry_moderation_events[]
+  
+  @@index([inquiry_id])
+  @@index([reply_id])
+  @@index([admin_id])
+  
+  @@unique([reporter_customer_id, inquiry_id, reply_id, reason, created_at], map: "shopping_mall_ai_backend_inquiry_abuse_reports_reporte_b9dbc1c3")
+  @@index([status, created_at], map: "shopping_mall_ai_backend_inquiry_abuse_reports_status__b6bb2a3a")
+  @@index([reason(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Chronological record of moderation actions/events affecting inquiries or
+/// abuse reports. Links actions to target inquiry, reply, or abuse report,
+/// records moderator/admin, event type (e.g., review, rejection,
+/// restoration), timestamp, and any rationale notes. Critical for compliance
+/// and audit trails. Managed only via admin/mod console.
+///
+/// @namespace Inquiries
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_inquiry_moderation_events {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Target inquiry's {@link shopping_mall_ai_backend_inquiries.id}, nullable
+  /// if action relates directly to reply or report.
+  inquiry_id String? @db.Uuid
+  
+  /// Target reply's {@link shopping_mall_ai_backend_inquiry_replies.id},
+  /// nullable.
+  reply_id String? @db.Uuid
+  
+  /// Target abuse report's {@link
+  /// shopping_mall_ai_backend_inquiry_abuse_reports.id}, nullable.
+  abuse_report_id String? @db.Uuid
+  
+  /// Administrator or moderator responsible for this action. {@link
+  /// shopping_mall_ai_backend_admins.id}.
+  admin_id String @db.Uuid
+  
+  /// Event type (e.g., review, resolve, reject, restore, escalate).
+  event_type String
+  
+  /// Rationale or moderation note (freeform, optional).
+  note String?
+  
+  /// Timestamp this moderation event was logged.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  inquiry shopping_mall_ai_backend_inquiries? @relation(fields: [inquiry_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_inquiry_moderation_events_inq_bf21bc96")
+  reply shopping_mall_ai_backend_inquiry_replies? @relation(fields: [reply_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_inquiry_moderation_events_rep_469440ba")
+  abuseReport shopping_mall_ai_backend_inquiry_abuse_reports? @relation(fields: [abuse_report_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_inquiry_moderation_events_abu_511231a6")
+  admin shopping_mall_ai_backend_admins @relation(fields: [admin_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_inquiry_moderation_events_adm_76ad2a64")
+  
+  @@index([reply_id], map: "shopping_mall_ai_backend_inquiry_moderation_events_rep_750c2f1f")
+  @@index([abuse_report_id], map: "shopping_mall_ai_backend_inquiry_moderation_events_abu_1904be31")
+  @@index([admin_id], map: "shopping_mall_ai_backend_inquiry_moderation_events_adm_b9cbb0b0")
+  
+  @@index([inquiry_id, abuse_report_id, created_at], map: "shopping_mall_ai_backend_inquiry_moderation_events_inq_dab9f05c")
+  @@index([note(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Records AI-generated or admin-added FAQ suggestions linked to inquiries,
+/// with rationale, FAQ question/answer, system/admin status, and timestamp.
+/// Provides an audit trail of suggested/helpful resources for user or
+/// moderation workflows. Not directly managed by users; exists to support
+/// moderation and ML/AI explainability.
+///
+/// @namespace Inquiries
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_inquiry_faq_suggestions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Inquiry for which FAQ is suggested. {@link
+  /// shopping_mall_ai_backend_inquiries.id}.
+  inquiry_id String @db.Uuid
+  
+  /// Admin who confirmed/suggested/explained the FAQ. {@link
+  /// shopping_mall_ai_backend_admins.id}, nullable if suggested by AI only.
+  admin_id String? @db.Uuid
+  
+  /// FAQ question suggested for user.
+  faq_question String
+  
+  /// Suggested FAQ answer content.
+  faq_answer String
+  
+  /// How the FAQ was suggested (AI, admin, manual, ML-model, review).
+  suggestion_type String
+  
+  /// Status (suggested, accepted, dismissed, outdated, replaced).
+  status String
+  
+  /// Explanation rationale, evidence, or ML/service reference for why the FAQ
+  /// was suggested (optional).
+  note String?
+  
+  /// Timestamp of FAQ suggestion creation.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  inquiry shopping_mall_ai_backend_inquiries @relation(fields: [inquiry_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_inquiry_faq_suggestions_inqui_24f12602")
+  admin shopping_mall_ai_backend_admins? @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([admin_id])
+  
+  @@index([inquiry_id, suggestion_type, created_at], map: "shopping_mall_ai_backend_inquiry_faq_suggestions_inqui_7d1e6684")
+  @@index([faq_question(ops: raw("gin_trgm_ops"))], type: Gin, map: "shopping_mall_ai_backend_inquiry_faq_suggestions_faq_q_6068590c")
+  @@index([faq_answer(ops: raw("gin_trgm_ops"))], type: Gin)
+}

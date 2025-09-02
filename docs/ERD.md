@@ -5,1124 +5,2946 @@
 - [Systematic](#systematic)
 - [Actors](#actors)
 - [Products](#products)
-- [Community](#community)
 - [Carts](#carts)
 - [Orders](#orders)
 - [Coupons](#coupons)
 - [Coins](#coins)
 - [Inquiries](#inquiries)
-- [Analytics](#analytics)
+- [Favorites](#favorites)
+- [Articles](#articles)
 
 ## Systematic
 
 ```mermaid
 erDiagram
-"aimall_backend_channels" {
+"shopping_mall_ai_backend_channels" {
   String id PK
   String code UK
   String name
-  Boolean enabled
-  DateTime created_at
-  DateTime updated_at
-}
-"aimall_backend_sections" {
-  String id PK
-  String channel_id FK
-  String code
-  String name
-  Int display_order
-  Boolean enabled
+  String description "nullable"
+  String country
+  String currency
+  String language
+  String timezone
   DateTime created_at
   DateTime updated_at
   DateTime deleted_at "nullable"
 }
-"aimall_backend_configurations" {
+"shopping_mall_ai_backend_channel_sections" {
   String id PK
-  String channel_id FK "nullable"
-  String section_id FK "nullable"
-  String key
+  String shopping_mall_ai_backend_channel_id FK
+  String parent_id FK "nullable"
+  String code
+  String name
+  String description "nullable"
+  Int order
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_channel_categories" {
+  String id PK
+  String shopping_mall_ai_backend_channel_id FK
+  String parent_id FK "nullable"
+  String code
+  String name
+  String description "nullable"
+  Int order
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_channel_category_mappings" {
+  String id PK
+  String shopping_mall_ai_backend_channel_section_id FK
+  String shopping_mall_ai_backend_channel_category_id FK
+  DateTime created_at
+}
+"shopping_mall_ai_backend_system_configs" {
+  String id PK
+  String key UK
   String value
+  String description "nullable"
+  DateTime effective_from "nullable"
+  DateTime effective_to "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_system_audit_trails" {
+  String id PK
+  String event_type
+  String actor_id
+  String description
+  String metadata "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_files" {
+  String id PK
+  String original_filename
+  String mime_type
+  String(80000) storage_uri UK
+  Int size_bytes
+  String uploaded_by_id
+  DateTime uploaded_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_codebooks" {
+  String id PK
+  String code UK
+  String name
   String description "nullable"
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_sections" }o--|| "aimall_backend_channels" : fk_aimall_backend_sections_channel_id
-"aimall_backend_configurations" }o--o| "aimall_backend_channels" : fk_aimall_backend_configurations_channel_id
-"aimall_backend_configurations" }o--o| "aimall_backend_sections" : fk_aimall_backend_configurations_section_id
+"shopping_mall_ai_backend_codebook_entries" {
+  String id PK
+  String shopping_mall_ai_backend_codebook_id FK
+  String code
+  String label
+  String description "nullable"
+  Int order
+  Boolean visible
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_channel_sections" }o--|| "shopping_mall_ai_backend_channels" : channel
+"shopping_mall_ai_backend_channel_sections" }o--o| "shopping_mall_ai_backend_channel_sections" : parent
+"shopping_mall_ai_backend_channel_categories" }o--|| "shopping_mall_ai_backend_channels" : channel
+"shopping_mall_ai_backend_channel_categories" }o--o| "shopping_mall_ai_backend_channel_categories" : parent
+"shopping_mall_ai_backend_channel_category_mappings" }o--|| "shopping_mall_ai_backend_channel_sections" : section
+"shopping_mall_ai_backend_channel_category_mappings" }o--|| "shopping_mall_ai_backend_channel_categories" : category
+"shopping_mall_ai_backend_codebook_entries" }o--|| "shopping_mall_ai_backend_codebooks" : codebook
 ```
 
-### `aimall_backend_channels`
+### `shopping_mall_ai_backend_channels`
 
-Channel entity - Implements the channels management requirement, supporting the definition and configuration of sales/distribution channels (e.g., main website, partner sites, mobile app) within the systematic backbone. Channels represent different distribution fronts for the platform, allowing appropriate products and content to be mapped or scoped. Strict 3NF compliance is maintained by decoupling the channel entity from other business entities. Channels may be referenced externally by related domain tables (such as products, channel assignments).
-
-Properties as follows:
-
-- `id`: Primary Key. Uniquely identifies each channel by universally unique identifier according to best practice.
-- `code`: Channel code: unique short identifier (e.g., 'WEB', 'MOBILE'). Used for programmatic lookups and internal configuration, atomic value. Unique across all channels.
-- `name`: Human-readable channel name for UIs and management. Fully normalized, used in admin/service configurations.
-- `enabled`: If true, channel is active; otherwise, channel is disabled for routing/service. Atomic flag, fully normalized. Used for toggling channel availability without deletion.
-- `created_at`: Row creation timestamp for audit trail and compliance, required for record keeping. 3NF: atomic.
-- `updated_at`: Last modification timestamp for audit/change tracking. Atomic, not pre-calculated.
-
-### `aimall_backend_sections`
-
-Section entity - Implements the requirement for UI/display content organization within channels. Sections are subdivisions (e.g., homepage banners, featured blocks) and strictly normalized. Channel_id is FK to channels, code is unique within channel. Soft deletion uses deleted_at. Used as a referencing entity for content/product/offer assignment modules in other domains. No denormalized data, all fields atomic. 3NF compliant.
+Represents a top-level sales channel (web, app, affiliate) with
+independent branding, configuration, and legal context. Forms the root of
+all section/category taxonomies. Other domains reference this for scoping
+users, products, promotions, and analytics. Supports cross-channel
+commerce and coordinated operations.
 
 Properties as follows:
 
-- `id`: Primary Key. Uniquely identifies each section in the system.
-- `channel_id`: Belonged channel's [aimall_backend_channels.id](#aimall_backend_channels). Links section to a specific channel. This ensures clear channel/section-scoping. Non-nullable for data integrity.
-- `code`: Section code, unique within channel, e.g., 'BANNER', 'DEALS'. Atomic value; fully 3NF; no repetition.
-- `name`: Section display name: human readable, for admin/UI. Atomic data, normalized.
-- `display_order`: Numeric order for display, atomic field, 3NF. Used for admin/UI ordering and rendering control.
-- `enabled`: If true, section is active/visible; admin toggle/control for soft suppressing/activating sections. 3NF, atomic field.
-- `created_at`: Creation timestamp for audit/logical tracing, no denormalization.
-- `updated_at`: Last change timestamp for auditing. No pre-calculation, atomic field. 3NF.
-- `deleted_at`: Logical deletion field: soft delete with timestamp, null if alive. Used for logical retention and audit. Nullable.
+- `id`: Primary Key.
+- `code`
+  > Business channel code, unique across all channels, used for business
+  > logic referencing and integration.
+- `name`: Public display name for the channel.
+- `description`
+  > Detailed channel description, including business usage, for
+  > admin/reference.
+- `country`
+  > Country or region for compliance and default settings. ISO 3166-1
+  > (alpha-2).
+- `currency`
+  > Default currency for transactions in this channel (ISO 4217 codes e.g.
+  > KRW, USD, EUR).
+- `language`: Default language for this channel (IETF language tag).
+- `timezone`: Default timezone of the channel (IANA/Olson database format).
+- `created_at`: Timestamp of channel creation.
+- `updated_at`: Timestamp of last channel update.
+- `deleted_at`: Timestamp of soft deletion, if applicable.
 
-### `aimall_backend_configurations`
+### `shopping_mall_ai_backend_channel_sections`
 
-System Configuration entity - Implements requirement for global, channel, or section-scoped setting storage. Each configuration represents a setting (key/value) optionally scoped to channel or section. Used for feature toggles, platform-wide or channel-specific behaviors. Fully 3NF: no duplicated/denormalized/calculated fields, all settings atomic and change-tracked. Key+channel_id+section_id combination is unique to avoid overlap. All relationships are optional (global = both null).
+Defines a section structure (e.g., home, sale, featured) for a channel.
+Each section is scoped by channel and optionally organized hierarchically
+(nested sections). Supports business navigation, personalization, and
+analytics segmentation.
 
 Properties as follows:
 
-- `id`: Primary Key. Unique record id. Each config is a standalone setting.
-- `channel_id`: Optional foreign key to [aimall_backend_channels.id](#aimall_backend_channels). Null = global config; for channel-level settings. Ensures normalized design. Soft constraint; referenced channel must exist if used.
-- `section_id`: Optional FK to [aimall_backend_sections.id](#aimall_backend_sections). Null = applies at global or channel settings; non-null = conf applies to given section. Retains 3NF, atomic references.
-- `key`: Configuration key for setting, e.g., 'site_maintenance'. Atomic string key, unique per channel+section. No denormalization, single data point.
-- `value`: Setting value in string form, to allow flexible data types (bool/int/JSON all as strings). Pure field, 3NF, atomic.
-- `description`: Optional text explaining the configuration for admins, nullable. Used for documentation and operational clarity. No constraint; normalized; not required.
-- `created_at`: Row created time for compliance/auditability. Not null; not derived.
-- `updated_at`: Last change timestamp. 3NF: atomic field, not precomputed or denormalized.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_channel_id`
+  > Parent channel's [shopping_mall_ai_backend_channels.id](#shopping_mall_ai_backend_channels). Section
+  > belongs to a single channel.
+- `parent_id`
+  > Optional parent section for nested section hierarchy. Self-referencing to
+  > allow tree structure.
+- `code`: Section code, unique within channel.
+- `name`: Display name for section/navigation.
+- `description`: Section business purpose/admin memo.
+- `order`: Order for visual sorting/navigation; lower numbers are shown first.
+- `created_at`: Timestamp of section creation.
+- `updated_at`: Timestamp of last update.
+- `deleted_at`: Timestamp of soft deletion, if present.
+
+### `shopping_mall_ai_backend_channel_categories`
+
+Represents category definitions for a channel (e.g., 'Home Decor',
+'Electronics'). Each category is scoped by channel. Supports navigation,
+filtering, analytics. Allows nesting (tree structure) with parent-child
+relationships.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_channel_id`
+  > Channel's [shopping_mall_ai_backend_channels.id](#shopping_mall_ai_backend_channels). Category is
+  > assigned to a channel.
+- `parent_id`: Optional parent category for nested category trees.
+- `code`: Category code, unique within channel.
+- `name`: Category display name.
+- `description`: Business/admin context for category.
+- `order`: Order for display or priority within channel.
+- `created_at`: Timestamp of creation.
+- `updated_at`: Last updated timestamp.
+- `deleted_at`: Soft deletion timestamp, if any.
+
+### `shopping_mall_ai_backend_channel_category_mappings`
+
+Subsidiary mapping table for cross-channel or section-to-category
+assignments—e.g., mapping category trees or sharing categories across
+sections/channels. Not user-manageable; enables complex navigation or
+analytics relationships.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_channel_section_id`
+  > Section to which the category is mapped {@link
+  > shopping_mall_ai_backend_channel_sections.id}.
+- `shopping_mall_ai_backend_channel_category_id`: Mapped category's [shopping_mall_ai_backend_channel_categories.id](#shopping_mall_ai_backend_channel_categories).
+- `created_at`: Mapping creation timestamp.
+
+### `shopping_mall_ai_backend_system_configs`
+
+Key-value configuration table for global and system context. Governs
+business logic, operational flags, feature toggles, and platform-wide
+parameters. Referenced by all domains—enables dynamic config management
+and auditability.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `key`
+  > Unique config key. Scope: global, unless per-channel or per-feature. Used
+  > by application logic for config lookup.
+- `value`: Serialized value in standard format (e.g. JSON or string).
+- `description`: Business/admin facing explanation of config parameter.
+- `effective_from`: Config effectivity start time (for scheduled/conditional configs).
+- `effective_to`: Optional: config end time.
+- `created_at`: Time of creation/insert.
+- `updated_at`: Last update timestamp.
+- `deleted_at`: Time of soft deletion, if any.
+
+### `shopping_mall_ai_backend_system_audit_trails`
+
+Global system audit trail for configuration changes, platform events, and
+sensitive operations. Used for regulatory compliance, business evidence,
+and tamper-proof operational history. Each entry is immutable and
+append-only.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `event_type`: Type of event (enum: config_change, access, permission, error, etc.).
+- `actor_id`
+  > Reference to acting user, seller, admin, etc. (UUID from other tables).
+  > Business context dependent.
+- `description`: Human-readable business context and event details.
+- `metadata`: Serialized details/metadata (JSON or text) for technical audit.
+- `created_at`: Time of event occurrence.
+
+### `shopping_mall_ai_backend_files`
+
+System-wide files/attachments metadata table. Used across all business
+domains for referencing uploads, compliance records, and evidence. Tracks
+file lifecycle, storage, size, and linkage to business entities. Enables
+content audit, ownership, and secure access controls.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `original_filename`: User-supplied source filename (immutable, for audit).
+- `mime_type`: File content-type (IANA, e.g. image/png, application/pdf).
+- `storage_uri`: URI/reference to blob/object store or file service.
+- `size_bytes`: File size in bytes.
+- `uploaded_by_id`: Uploader's UUID (customer, seller, admin reference).
+- `uploaded_at`: File upload timestamp.
+- `deleted_at`: Logical deletion timestamp (if any).
+
+### `shopping_mall_ai_backend_codebooks`
+
+Represents a codebook (lookup dictionary) containing business
+labels/codes. Used for status, types, region lists, option tags, etc.
+Each codebook groups related codes for use in various domain contexts.
+Managed independently (e.g., status values, option types).
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `code`: Business codebook identifier (unique).
+- `name`: Codebook display name for reference/admin UI.
+- `description`: Business context, usage, and memo for admins.
+- `created_at`: Time of creation.
+- `updated_at`: Time of last update.
+- `deleted_at`: Soft deletion time, if present.
+
+### `shopping_mall_ai_backend_codebook_entries`
+
+Entries/values within a codebook, e.g. statuses, tags, option values.
+Each entry is assigned to a parent codebook and has business visibility
+rules (show/hide) and ordering. Not independently managed.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_codebook_id`: Parent codebook's [shopping_mall_ai_backend_codebooks.id](#shopping_mall_ai_backend_codebooks).
+- `code`: Entry code, unique within codebook.
+- `label`: Human display label for this entry.
+- `description`: Business context/detail/memo.
+- `order`: Sorting order for this entry among entries in a codebook.
+- `visible`: Whether this entry is visible for business use.
+- `created_at`: Created timestamp.
+- `updated_at`: Updated timestamp.
+- `deleted_at`: Soft deletion timestamp, if any.
 
 ## Actors
 
 ```mermaid
 erDiagram
-"aimall_backend_customers" {
+"shopping_mall_ai_backend_customers" {
   String id PK
   String email UK
-  String phone UK
-  String password_hash "nullable"
-  String status
-  DateTime created_at
-  DateTime updated_at
-}
-"aimall_backend_sellers" {
-  String id PK
-  String business_name
-  String email UK
-  String contact_phone
-  String status
-  DateTime created_at
-  DateTime updated_at
-}
-"aimall_backend_administrators" {
-  String id PK
-  String permission_id FK
-  String email UK
+  String phone_number UK
+  String password_hash
   String name
-  String status
+  String nickname "nullable"
+  Boolean is_active
+  Boolean is_verified
+  DateTime last_login_at "nullable"
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_permissions" {
+"shopping_mall_ai_backend_customer_withdrawals" {
   String id PK
-  String name UK
-  String display_name
-  String description
+  String customer_id FK
+  String reason "nullable"
+  DateTime withdrawn_at
   DateTime created_at
 }
-"aimall_backend_external_accounts" {
+"shopping_mall_ai_backend_customer_sessions" {
+  String id PK
+  String customer_id FK
+  String access_token UK
+  String refresh_token "nullable"
+  String ip_address
+  String user_agent
+  DateTime expires_at
+  DateTime created_at
+  DateTime terminated_at "nullable"
+}
+"shopping_mall_ai_backend_customer_external_identities" {
   String id PK
   String customer_id FK
   String provider
-  String external_user_id
+  String provider_key
   DateTime linked_at
+  DateTime last_verified_at "nullable"
 }
-"aimall_backend_behavior_trackings" {
+"shopping_mall_ai_backend_sellers" {
   String id PK
-  String customer_id FK
-  String event_type
-  String event_data
-  DateTime occurred_at
+  String email UK
+  String business_registration_number UK
+  String name
+  Boolean is_verified
+  Boolean is_active
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_addresses" {
+"shopping_mall_ai_backend_seller_verifications" {
   String id PK
-  String customer_id FK
-  String alias
-  String recipient_name
-  String phone
-  String address_line1
-  String address_line2 "nullable"
-  String city
-  String postal_code
-  String country
-  Boolean is_default
+  String seller_id FK
+  String verification_type
+  String status
+  String(80000) document_uri
+  DateTime submitted_at
+  DateTime verified_at "nullable"
+}
+"shopping_mall_ai_backend_seller_profiles" {
+  String id PK
+  String seller_id FK,UK
+  String display_name "nullable"
+  String contact_phone "nullable"
+  String contact_email "nullable"
+  String address "nullable"
+  String description "nullable"
+  DateTime created_at
   DateTime updated_at
 }
-"aimall_backend_administrators" }o--|| "aimall_backend_permissions" : admin_permission
-"aimall_backend_external_accounts" }o--|| "aimall_backend_customers" : external_account_customer
-"aimall_backend_behavior_trackings" }o--|| "aimall_backend_customers" : behavior_tracking_customer
-"aimall_backend_addresses" }o--|| "aimall_backend_customers" : address_customer
+"shopping_mall_ai_backend_seller_settlements" {
+  String id PK
+  String seller_id FK,UK
+  String bank_name
+  String bank_account_number
+  String account_holder
+  String remittance_memo "nullable"
+  DateTime created_at
+  DateTime updated_at
+}
+"shopping_mall_ai_backend_admins" {
+  String id PK
+  String username UK
+  String password_hash
+  String name
+  String email UK
+  String phone_number "nullable"
+  Boolean is_active
+  DateTime last_login_at "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_admin_audit_logs" {
+  String id PK
+  String admin_id FK
+  String operation
+  String target_id
+  String target_type
+  String description "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_role_escalations" {
+  String id PK
+  String user_id FK
+  String admin_id FK "nullable"
+  String from_role
+  String to_role
+  String escalation_type
+  String reason "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_customer_withdrawals" }o--|| "shopping_mall_ai_backend_customers" : customer
+"shopping_mall_ai_backend_customer_sessions" }o--|| "shopping_mall_ai_backend_customers" : customer
+"shopping_mall_ai_backend_customer_external_identities" }o--|| "shopping_mall_ai_backend_customers" : customer
+"shopping_mall_ai_backend_seller_verifications" }o--|| "shopping_mall_ai_backend_sellers" : seller
+"shopping_mall_ai_backend_seller_profiles" |o--|| "shopping_mall_ai_backend_sellers" : seller
+"shopping_mall_ai_backend_seller_settlements" |o--|| "shopping_mall_ai_backend_sellers" : seller
+"shopping_mall_ai_backend_admin_audit_logs" }o--|| "shopping_mall_ai_backend_admins" : admin
+"shopping_mall_ai_backend_role_escalations" }o--|| "shopping_mall_ai_backend_customers" : user
+"shopping_mall_ai_backend_role_escalations" }o--o| "shopping_mall_ai_backend_admins" : admin
 ```
 
-### `aimall_backend_customers`
+### `shopping_mall_ai_backend_customers`
 
-Customer account data - This implements the core customer entity requirement from the Customer System requirements document. This model represents end-users who engage in shopping, use personalized features, and manage their own profiles, providing the anchor for all customer-centric activities. Maintains 3NF by separating identity and behavioral data. For example, referenced in orders, addresses, reviews, and behavior logs. Key relationships: links to external accounts, addresses, behavioral tracking. Special behaviors: unique constraints on identity; deletion triggers anonymization except for compliance logs.
-
-Properties as follows:
-
-- `id`: Primary Key.
-- `email`: The customer's primary email address - Implements identity requirement. Used for authentication and notifications. Enforces normalization by not duplicating across other tables. For example: unique login/email mapping. Must be unique.
-- `phone`: Customer’s primary phone number. Implements alternative contact requirement. Kept atomic. Used for SMS notification and verification flows. Example: profile edit, password reset.
-- `password_hash`: Secure hashed password for the customer. Implements authentication requirement. Ensures security by never storing plain text. Used during login. Null for external-only accounts.
-- `status`: Account status (e.g., active, suspended, pending, deleted). Implements status tracking. Maintains normalization as atomic code. Example usage: onboarding approval, account lock.
-- `created_at`: Timestamp of account creation. Implements audit trail. Kept atomic and fully normalized. Used for registration analytics.
-- `updated_at`: Timestamp of last profile update. Implements audit and integrity requirement. Tracked for compliance/logging.
-
-### `aimall_backend_sellers`
-
-Seller account record - Implements the seller onboarding and management requirement from the Seller System requirements. Each record represents a merchant business identity for listing, inventory management, and analytics. Maintains 3NF by storing only atomic seller-level data. Related to permissions for advanced controls. Example: referenced when tracking seller performance or auditing onboarding. Key relationships: may reference granular permission entity. Special behaviors: Verification/check/audit status handled via status field.
+Customer account information including all identity, authentication, and
+business lifecycle attributes. Serves as the base entity for all
+customer-centric commerce, holding references to profile, registration,
+and current status data. Supports independent user management,
+onboarding, and withdrawal requests. Linked to withdrawal and session
+event models.
 
 Properties as follows:
 
 - `id`: Primary Key.
-- `business_name`: Seller’s registered business name. Implements business profile requirement. Normalized to avoid duplication in product or order records. Used for display and compliance checks.
-- `email`: Seller’s business contact email. Used for onboarding, notification, and login if allowed. Maintains uniqueness and normalization. For example: used in seller sign-up, password reset.
-- `contact_phone`: Seller’s primary contact phone. Implements communication and verification requirement. Purely atomic and for contact purposes.
-- `status`: Onboarding and operational status (pending, approved, rejected, suspended). Used for permission logic and admin review flows. Example: audit transitions, dashboard access.
-- `created_at`: Timestamp of seller account creation. For audit and compliance. Example: onboarding analytics.
-- `updated_at`: Timestamp of last seller account update. For audit, change tracking.
+- `email`
+  > Email address used for authentication and notifications. Must be unique
+  > per channel.
+- `phone_number`
+  > Customer's verified mobile phone number. Used for primary contact and
+  > regulatory identity check.
+- `password_hash`: Hash of customer's authentication password. Never stored in cleartext.
+- `name`: Full legal name of the customer as supplied or verified during onboarding.
+- `nickname`
+  > Customer's preferred display nickname. Displayed to sellers and in
+  > community features.
+- `is_active`: Whether the customer account is currently active and enabled for login.
+- `is_verified`: Whether real-name and/or mobile number identity verification is completed.
+- `last_login_at`
+  > Timestamp of the customer's most recent valid login. Useful for activity
+  > tracking and account monitoring.
+- `created_at`: Timestamp when the customer account was created.
+- `updated_at`: Timestamp when the customer account record was last updated.
+- `deleted_at`
+  > Timestamp recording logical deletion (withdrawal or admin removal) for
+  > compliance.
 
-### `aimall_backend_administrators`
+### `shopping_mall_ai_backend_customer_withdrawals`
 
-Platform administrator entity - Implements the administrator user management and permission assignment requirement. Stores atomic data for each admin-level user with assigned permissions. Maintains 3NF by not mixing with seller/customer logic. Used for full or scoped admin access, activity logging, and audit traceability. Example: System operator signs in and manages sellers. Key relationships: references permissions entity for role assignments.
-
-Properties as follows:
-
-- `id`: Primary Key.
-- `permission_id`: References [aimall_backend_permissions.id](#aimall_backend_permissions) for assigned admin permission set. Enables hierarchical controls. For example: super admin vs. support admin.
-- `email`: Administrator’s email address. Used for sign-in and notification. Must be unique. Normalized.
-- `name`: Administrator display name. Implements admin user naming requirement. Used for dashboard, audit logs. Kept atomic and normalized, not duplicated elsewhere.
-- `status`: Operational status (active, suspended, pending). Used for access gating and audit flows.
-- `created_at`: Creation date for admin account. Used for join analysis, audit trace.
-- `updated_at`: Last update timestamp.
-
-### `aimall_backend_permissions`
-
-Permission/role definition entity - Implements fine-grained and role-based permission requirements for sellers and administrators. Enables maintainable, extendable, reusable access control lists. Maintains full normalization; only the permission identity and description live here. Example: support admin, super admin, seller-inventory. Used as assignment in admin and seller models. Special behaviors: If altered, triggers audit trail. Relationship: referenced by administrator or seller for role mapping.
-
-Properties as follows:
-
-- `id`: Primary Key.
-- `name`: Unique code or name for this permission/role (e.g., super_admin, seller_product_manager). Implements unique constraint for RBAC mapping. Maintains normalization; referenced only as foreign key.
-- `display_name`: Display name for UI/analytics. Used on dashboards. Not necessarily unique. Maintained separately from permission code for localization/flexibility.
-- `description`: Detailed explanation of what this permission grants. Used for system documentation, admin UX. Maintains atomicity by avoiding embedded business logic.
-- `created_at`: Permission definition created timestamp. Used for audit trail and change tracking.
-
-### `aimall_backend_external_accounts`
-
-External identity account link - Implements federated login/OAuth requirements by tracking external provider identities (Google, Kakao, Apple, etc.) linked to primary AIMall customer accounts. Maintains strict normalization: all external linkage data is atomic and sits in this model, referenced from customers. Example: Single customer, multiple federated logins. Relationships: FK to aimall_backend_customers. Special behaviors: If deleted, only impacts authentications via provider.
+Historical log of customer withdrawal and account deactivation events,
+preserving evidence and regulatory compliance data. Each record acts as a
+snapshot of the state and rationale when the customer initiated or
+completed withdrawal.
 
 Properties as follows:
 
 - `id`: Primary Key.
-- `customer_id`: Belonged customer’s [aimall_backend_customers.id](#aimall_backend_customers). Links this external account to the internal primary customer.
-- `provider`: Identity provider code (e.g., google, kakao, apple). Enforces normalized provider codes for robust branching and validation. For example: login flow decision logic. Critical for OAuth mapping.
-- `external_user_id`: External provider’s user ID string. Used to correlate federated identities. Example: store Google sub or Kakao id. Always atomic and never repeated.
-- `linked_at`: Timestamp of account linkage. Enables audit trail for identity events. Used for UX (showing when account was linked).
+- `customer_id`: Belonged customer's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `reason`: Customer provided reason for withdrawal or deactivation.
+- `withdrawn_at`: Timestamp when withdrawal/deactivation was completed.
+- `created_at`: Timestamp of record creation for evidence.
 
-### `aimall_backend_behavior_trackings`
+### `shopping_mall_ai_backend_customer_sessions`
 
-Per-customer behavioral tracking - Implements the session/activity tracking requirement. Stores API-driven customer events, preferences, and actions for AI, analytics, compliance. Ensures 3NF by isolating behavioral actions from static identity data. Example usage: shopping session event logs, personalization input. Relationship: links to customer. Special behaviors: May be periodically purged/anonymized for compliance. Used only for analytics/AIOps, never for business-critical identities.
-
-Properties as follows:
-
-- `id`: Primary Key.
-- `customer_id`: Related customer’s [aimall_backend_customers.id](#aimall_backend_customers). Logs which customer generated the behavior.
-- `event_type`: What user activity/event is being tracked (e.g., login, view_product, add_cart, checkout, search, recommend_click). Implements event-type requirement. Kept atomic as string code; normalization enforced. Used in analytics pipeline for behavior modeling.
-- `event_data`: Serialized payload describing the event more fully (JSON or similar). Contains atomic data, avoids schema transitive dependency. For example: product IDs, referer, AB test cohort.
-- `occurred_at`: Timestamp the event was logged. Implements audit and analytics timing. Used in analytics; always atomic.
-
-### `aimall_backend_addresses`
-
-Customer delivery addresses - Implements the address management requirement, storing normalized and per-customer-linked delivery location data. Ensures all address data is atomic (split lines, etc) in full compliance with 3NF. Used for checkout, shipments, address book UX. Relationships: links customer. Special behaviors: Customers can have multiple addresses, with optional default flag. Deletion disables only for this customer.
+Tracks all active or historical customer session records, used for
+authentication, fraud investigation, and multi-device login support.
+Manages session tokens, IP, device, and expiration for each authenticated
+interaction.
 
 Properties as follows:
 
 - `id`: Primary Key.
-- `customer_id`: Owner customer’s [aimall_backend_customers.id](#aimall_backend_customers). Allows associating multiple addresses per account, and enables easy lookup for checkout flows and address book UX.
-- `alias`: User-defined label for quick selection (e.g., 'Home', 'Office'). Implements per-customer usability. Fully atomic; not duplicated across tables. Used in address picker UX.
-- `recipient_name`: Address recipient name (can differ from customer profile). Fulfills logistics requirement. Used when generating shipping labels. Always atomic.
-- `phone`: Phone number for this address/recipient. Meets delivery carrier and communication needs. Fully atomic.
-- `address_line1`: Main line of street address/location. Split for normalization; no embedded logic. Used in shipping and verification.
-- `address_line2`: Second line (optional, e.g., apartment/suite). Split for normalization; not duplicated. Optional for UX.
-- `city`: City of the address. Used for logistics analysis; atomic for filtering/aggregation.
-- `postal_code`: Postal/ZIP code. Maintains normalization, index for geo lookup.
-- `country`: Country code or name. Normalized string for international handling; used for compliance/shipping.
-- `is_default`: True if this is the primary/default address for the customer. Implements default selection UX. Only one per customer can be true. Constraint enforced by application logic.
-- `updated_at`: When this address was last modified. Used for audit trail and UX.
+- `customer_id`: Belonged customer's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `access_token`: Session's access token for API authentication.
+- `refresh_token`: Token used to renew the session without re-authentication.
+- `ip_address`: IP address from which the session originated.
+- `user_agent`: Browser or device user agent string for context and fraud monitoring.
+- `expires_at`: Session expiry datetime (based on system policy).
+- `created_at`: Session creation timestamp.
+- `terminated_at`: Timestamp of explicit session logout or forced termination.
+
+### `shopping_mall_ai_backend_customer_external_identities`
+
+Links customer accounts to external identity providers such as
+OAuth/Social logins. Enables SSO, mapping, and external account
+management, ensuring business audit trail for all mappings.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `customer_id`: Belonged customer's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `provider`: External identity provider name (e.g., google, apple, naver, kakao).
+- `provider_key`
+  > Unique external key/id provided by the external provider for this
+  > customer.
+- `linked_at`: Timestamp when this identity mapping was created.
+- `last_verified_at`: Timestamp of last verified sign-in with this external provider.
+
+### `shopping_mall_ai_backend_sellers`
+
+Seller (merchant) account entity, representing approved business users
+authorized to register, sell, and fulfill orders. Stores identity
+verification, business credentials, and current seller status.
+Independent management, onboarding, and compliance attributes are
+maintained per seller.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `email`
+  > Seller's primary business email address used for registration and
+  > notifications. Unique per seller.
+- `business_registration_number`
+  > Seller's registered business identifier (regional/country standard
+  > number).
+- `name`: Legal business name of seller (business entity).
+- `is_verified`: Whether seller identity/business verification is complete and approved.
+- `is_active`: Whether seller account is currently active and able to operate.
+- `created_at`: Timestamp when the seller account was created.
+- `updated_at`: Timestamp when the seller account was last updated.
+- `deleted_at`: Soft deletion timestamp (for closed or withdrawn sellers).
+
+### `shopping_mall_ai_backend_seller_verifications`
+
+Certification, KYB/KYC evidence and verification records related to
+seller onboarding or periodic compliance checks. Each record links to a
+seller and includes validation documents, scope, and approval outcomes.
+Managed only as per business policy and immutable history.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `seller_id`: Belonged seller's [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers).
+- `verification_type`
+  > Type of business verification (e.g., identity, business_license,
+  > bank_account, AML, KYC).
+- `status`
+  > Current status (submitted, approved, rejected, expired, pending).
+  > Reflects compliance policy workflow.
+- `document_uri`
+  > Secure URI to evidence document or file. Points to uploaded file or
+  > reference directory.
+- `submitted_at`: Timestamp when verification document was submitted.
+- `verified_at`: Timestamp when verification was approved (if successful).
+
+### `shopping_mall_ai_backend_seller_profiles`
+
+Additional seller/business profile details, linked 1:1 to sellers.
+Includes optional and extended info, business contact, and public display
+settings. Managed through seller profile UI or admin.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `seller_id`: Belonged seller's [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers).
+- `display_name`: Seller's public display name/brand (may be different from legal name).
+- `contact_phone`: Primary contact phone for business operations.
+- `contact_email`: Business or support contact email.
+- `address`: Business registered address (for display or compliance use).
+- `description`: Self-description or introductory text for the seller shop page.
+- `created_at`: Timestamp when the profile was created.
+- `updated_at`: Profile update timestamp.
+
+### `shopping_mall_ai_backend_seller_settlements`
+
+Records of settlement configuration and payout instructions for each
+seller, used in financial processing and disbursement. Includes payout
+method, bank details, and account/recipient info per seller. Supports
+settlement changes and audit trail.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `seller_id`: Belonged seller's [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers).
+- `bank_name`: Bank or financial institution name for disbursement.
+- `bank_account_number`: Account number for payout.
+- `account_holder`: Name of the registered account holder for settlements.
+- `remittance_memo`: Optional memo or note field for settlement purposes.
+- `created_at`: Settlement configuration creation timestamp.
+- `updated_at`: Timestamp of last update to settlement info.
+
+### `shopping_mall_ai_backend_admins`
+
+Administrator account for platform operators, regulatory personnel, and
+business rule enforcement. Each admin manages business policies, audits,
+and incidents. Supports multi-factor auth, credential lifecycle, and
+status management.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `username`: Unique admin username or operator ID (must be unique).
+- `password_hash`: Hashed administrator password for auth, never stored as cleartext.
+- `name`: Administrator's real name for traceability.
+- `email`: Administrator business email address (unique per admin).
+- `phone_number`: Verified contact for admin (SMS/phone notification, account recovery).
+- `is_active`: Whether this admin account is currently enabled.
+- `last_login_at`
+  > Time of last successful login. Used for audit trail and activity
+  > monitoring.
+- `created_at`: Timestamp of admin account creation.
+- `updated_at`: Timestamp of last admin record update.
+- `deleted_at`: Soft deletion timestamp (retained for audit compliance).
+
+### `shopping_mall_ai_backend_admin_audit_logs`
+
+Business and system audit log of all privileged admin actions. Captures
+admin reference, operation performed, rationale, and affected
+target/count. Immutable record for compliance and forensic review by
+regulators.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `admin_id`: Admin account's [shopping_mall_ai_backend_admins.id](#shopping_mall_ai_backend_admins).
+- `operation`
+  > Type of privileged operation (e.g., approve_seller, suspend_user,
+  > modify_config, access_evidence).
+- `target_id`
+  > Primary identifier of the entity affected by this operation (for audit
+  > linkage).
+- `target_type`: Type of entity affected (e.g., customer, seller, system, order, config).
+- `description`: Detailed description or justification for the operation.
+- `created_at`: Timestamp when the audit log entry was created.
+
+### `shopping_mall_ai_backend_role_escalations`
+
+Snapshot entity capturing user membership/seller/admin role change and
+escalation events. Used for regulatory audit, approval workflows, and
+business process replays. Each record describes role transition, outcome,
+and rationale, with references to relevant user/admin.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `user_id`
+  > ID of the user whose role was escalated/deescalated (references customer,
+  > seller, or admin - cross-reference by context).
+- `admin_id`
+  > Administrator who approved/escalated role (references {@link
+  > shopping_mall_ai_backend_admins.id}).
+- `from_role`: Previous business role (e.g., customer, seller, admin, suspended, guest).
+- `to_role`: Resulting business role after escalation/transition.
+- `escalation_type`
+  > Type of change (e.g., promotion, demotion, temporary, permanent,
+  > approval, rejection).
+- `reason`
+  > Optional human-readable rationale or system justification for the
+  > escalation.
+- `created_at`: Time the escalation event was recorded.
 
 ## Products
 
 ```mermaid
 erDiagram
-"aimall_backend_products" {
+"shopping_mall_ai_backend_products" {
   String id PK
-  String category_id FK
-  String seller_id FK
   String title
+  String slug UK
   String description "nullable"
-  String(80000) main_thumbnail_uri "nullable"
-  String status
+  String product_type
+  String business_status
+  Int min_order_quantity
+  Int max_order_quantity
+  String tax_code
+  Int sort_priority
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_product_options" {
+"shopping_mall_ai_backend_product_options" {
   String id PK
-  String product_id FK
-  String name
-  String value
-}
-"aimall_backend_product_bundles" {
-  String id PK
-  String bundle_product_id FK
-  String component_product_id FK
-  Boolean is_required
-  Int quantity
-}
-"aimall_backend_categories" {
-  String id PK
-  String parent_id FK "nullable"
-  String name
-  Int depth
-}
-"aimall_backend_skus" {
-  String id PK
-  String product_id FK
-  String sku_code UK
-}
-"aimall_backend_inventory_snapshots" {
-  String id PK
-  String sku_id FK
-  String product_id FK
-  String change_type
-  Int change_quantity
-  String changed_by
+  String shopping_mall_ai_backend_products_id FK
+  String option_name
+  Boolean required
+  Int sort_order
   DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_channel_assignments" {
+"shopping_mall_ai_backend_product_option_units" {
   String id PK
-  String product_id FK
-  String channel_id FK
+  String shopping_mall_ai_backend_product_options_id FK
+  String unit_value
+  String unit_code
+  Int sort_order
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_product_bundles" {
+  String id PK
+  String shopping_mall_ai_backend_products_id FK
+  String bundle_name
+  String sku_code UK
+  Float price
+  String inventory_policy
+  Boolean is_active
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_product_tags" {
+  String id PK
+  String tag_name
+  String tag_code UK
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_product_categories" {
+  String id PK
+  String category_name
+  String category_code UK
+  String parent_id "nullable"
+  Int category_depth
+  Boolean is_active
+  Int sort_order
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_product_category_mappings" {
+  String id PK
+  String shopping_mall_ai_backend_products_id FK
+  String shopping_mall_ai_backend_product_categories_id FK
   DateTime assigned_at
 }
-"aimall_backend_products" }o--|| "aimall_backend_categories" : fk_aimall_backend_products_category_id
-"aimall_backend_product_options" }o--|| "aimall_backend_products" : fk_aimall_backend_product_options_product_id
-"aimall_backend_product_bundles" }o--|| "aimall_backend_products" : fk_aimall_backend_product_bundles_bundle_product_id
-"aimall_backend_product_bundles" }o--|| "aimall_backend_products" : fk_aimall_backend_product_bundles_component_product_id
-"aimall_backend_categories" }o--o| "aimall_backend_categories" : fk_aimall_backend_categories_parent_id
-"aimall_backend_skus" }o--|| "aimall_backend_products" : fk_aimall_backend_skus_product_id
-"aimall_backend_inventory_snapshots" }o--|| "aimall_backend_skus" : fk_aimall_backend_inventory_snapshots_sku_id
-"aimall_backend_inventory_snapshots" }o--|| "aimall_backend_products" : fk_aimall_backend_inventory_snapshots_product_id
-"aimall_backend_channel_assignments" }o--|| "aimall_backend_products" : fk_aimall_backend_channel_assignments_product_id
-```
-
-### `aimall_backend_products`
-
-Product master (core SKU/group) - This implements the comprehensive product catalog requirement from the Product Management document. Central record for all products listed across the platform. Holds product metadata, primary relationships (category, seller), and references to options and bundles. Maintains 3NF by not duplicating inventory, option, or category data – all relationships via foreign keys. For example, sellers define products here, and inventory or options are in linked tables. Key relationships: links to aimall_backend_sellers (already created table) and aimall_backend_categories. Special behaviors: Only normalized product master data; no precomputed inventory, price, or reviews.
-
-Properties as follows:
-
-- `id`: Primary Key. Uniquely identifies each product.
-- `category_id`: Category's [aimall_backend_categories.id](#aimall_backend_categories). References which category this product belongs to.
-- `seller_id`: Seller's [aimall_backend_sellers.id](#aimall_backend_sellers) - Who owns this product (from Actors domain; reference only).
-- `title`: Product title - Implements product listing requirement. Human-readable product name. Ensures normalization as only master copy here. Example: 'Apple AirPods Pro 2'.
-- `description`: Product detail/description - Implements product content requirement. Long text explaining features. Normalized; not duplicated elsewhere. Example: 'Latest model, improved noise cancellation.'
-- `main_thumbnail_uri`: Main thumbnail image URI - Implements image management requirement. Single main image URI. Only stored here, not duplicated in options. Example: 'https://cdn/airpods2-thumb.jpg'.
-- `status`: Status of product (active, inactive, out_of_stock, deleted) - Tracks whether product is available. Normalized field. Example: 'active'.
-- `created_at`: Created timestamp - Implements audit and snapshot needs. Creation datetime. Example: 2024-05-01T10:00:00Z.
-- `updated_at`: Updated timestamp. To support change and audit needs. Example: 2024-05-02T15:10:00Z.
-
-### `aimall_backend_product_options`
-
-Product options (variant definitions) - Implements the SKU/variant requirement in the Product Management and ERD. Stores all option variants for products (e.g., color, size). Maintains 3NF by only referencing products and not duplicating inventory or price. For example, 'Color: Black', 'Size: M' for given product. Key relationships: links to aimall_backend_products. Special behaviors: One record per option value; combinations for full SKU are stored in aimall_backend_skus.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique per product option.
-- `product_id`: Product's [aimall_backend_products.id](#aimall_backend_products) - Which product this option belongs to.
-- `name`: Option name (e.g., Color, Size) - Implements option specification requirement. Atomic; not duplicated. For example, 'Color'.
-- `value`: Option value (e.g., Red, Large) - Option value per option type. Ensures full normalization. For example, 'Black'.
-
-### `aimall_backend_product_bundles`
-
-Product bundles (set/group of products) - Implements the bundle/package product requirement from Product Management. Defines relationships between products that are sold together as bundles. Strictly normalized: just references to master products and role (main vs component). Never includes precomputed price or stock. For example, 'Gift Set' containing three products. Key relationships: links to main product and bundled product (both aimall_backend_products). Special behaviors: For M:N bundles, each row links a bundle and a bundled component.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique per bundle-member relation.
-- `bundle_product_id`: Main bundle product's [aimall_backend_products.id](#aimall_backend_products). Represents the product that is a bundle group/master.
-- `component_product_id`: Bundled component product's [aimall_backend_products.id](#aimall_backend_products). Represents the directly included (child) product.
-- `is_required`: Indicates if the component is required for the bundle - Implements bundle rule requirement. For example, requiring all components for fixed set; false for optional (e.g., gift add-on).
-- `quantity`: Quantity of this component in the bundle - How many units included per bundle. Maintains normalization by not duplicating product details. Example: 2 means two of this item per bundle.
-
-### `aimall_backend_categories`
-
-Product categories (taxonomy) - Implements category management and classification from Product Management. Defines the product taxonomy hierarchy (main/sub/section levels). Maintains 3NF – only category data; no product fields here. For example, 'Electronics > Phones > Accessories'. Key relationships: can be hierarchical via parent_id (self-reference); products reference categories. Special behaviors: Hierarchical nesting is optional (nullable parent_id); root categories have null parent_id.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique per category.
-- `parent_id`: Parent category's [aimall_backend_categories.id](#aimall_backend_categories). Hierarchical parent, or null for root categories.
-- `name`: Category name - Implements taxonomy labeling. Atomic; no category hierarchy in this field. For example: 'Electronics'.
-- `depth`: Hierarchy depth - Root=1, increasing with subcategories. Implements hierarchy requirement. For example, 2 for subcategory.
-
-### `aimall_backend_skus`
-
-SKU master (variant combinations) - Implements complete variant/SKU specification from Product Management. Defines each purchasable SKU (combination of product + options), with references to all option values selected. Fully normalized: no pricing, inventory, or calculated data; only references and atomic SKU codes. For example, a unique SKU for 'AirPods Pro 2, Color: Black, Case: Yes'. Key relationships: links to product and all relevant options. Special behaviors: Unique per product and option combination.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique per SKU.
-- `product_id`: Product's [aimall_backend_products.id](#aimall_backend_products) for which this SKU is defined.
-- `sku_code`: Platform-unique SKU code - Implements SKU referencing. Example: 'APPRO2-BLK-CASEY'.
-
-### `aimall_backend_inventory_snapshots`
-
-Inventory snapshot logger - Implements inventory audit trail, atomicity, and change tracking from Product Management. Records all changes to inventory for audit and temporal reconstruction. Fully normalized: references the SKU, never precomputes total inventory. For example, logs each change when inventory is updated due to sales, restock, or manual adjustment. Key relationships: links to SKUs and products. Special behaviors: Can reconstruct point-in-time inventory by aggregating snapshots for a SKU/product.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique per inventory change event.
-- `sku_id`: SKU's [aimall_backend_skus.id](#aimall_backend_skus) for which inventory was changed.
-- `product_id`: Product's [aimall_backend_products.id](#aimall_backend_products) (denormalized FK for easier audit).
-- `change_type`: Type of inventory change - Implements stock mutation requirement. Examples: 'sale', 'restock', 'manual_adjust'.
-- `change_quantity`: Quantity of change (positive/negative) - Atomic per event. For example, -1 for sale, +5 for restock.
-- `changed_by`: Actor's user id (e.g. admin or seller) - Who caused the change. Ensures proper audit trail. Example: seller UUID.
-- `created_at`: Timestamp when snapshot created. Implements audit/compliance.
-
-### `aimall_backend_channel_assignments`
-
-Channel assignment for product listing - Implements cross-channel management from Product Management. Records product's registration and mapping to multiple channels (e.g. online store, section, marketplace). Maintains 3NF by only referencing IDs. Example: A product may be listed on two channels; each row here for a channel. No pricing or denormalized status fields. Key relationships: links to aimall_backend_products and already created aimall_backend_channels. Special behaviors: Each tuple is unique: a product appears at most once per channel.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique per product/channel tuple.
-- `product_id`: Product's [aimall_backend_products.id](#aimall_backend_products) for this listing.
-- `channel_id`: Channel's [aimall_backend_channels.id](#aimall_backend_channels) (already implemented in Systematic domain).
-- `assigned_at`: Assignment timestamp - When product was listed on this channel. Maintains correct timeline for audit/rollback. Example: 2024-05-02T13:20:00Z.
-
-## Community
-
-```mermaid
-erDiagram
-"aimall_backend_posts" {
+"shopping_mall_ai_backend_product_files" {
   String id PK
-  String customer_id FK "nullable"
-  String title
-  String body
-  Boolean is_private
-  Int view_count
-  DateTime created_at
-  DateTime updated_at
-  DateTime deleted_at "nullable"
-}
-"aimall_backend_comments" {
-  String id PK
-  String post_id FK "nullable"
-  String review_id FK "nullable"
-  String parent_id FK "nullable"
-  String customer_id FK "nullable"
-  String body
-  Boolean is_private
-  DateTime created_at
-  DateTime updated_at
-  DateTime deleted_at "nullable"
-}
-"aimall_backend_reviews" {
-  String id PK
-  String customer_id FK
-  String product_id FK
-  String title
-  String body
-  Int rating
-  DateTime created_at
-  DateTime updated_at
-  DateTime deleted_at "nullable"
-}
-"aimall_backend_attachments" {
-  String id PK
-  String post_id FK "nullable"
-  String comment_id FK "nullable"
-  String review_id FK "nullable"
-  String(80000) file_uri
+  String shopping_mall_ai_backend_products_id FK
+  String(80000) file_uri UK
   String file_type
-  Int file_size
+  Int display_order
+  Boolean is_primary
   DateTime created_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_snapshots" {
+"shopping_mall_ai_backend_product_snapshots" {
   String id PK
-  String product_id FK "nullable"
-  String post_id FK "nullable"
-  String customer_id FK "nullable"
-  String(80000) media_uri
-  String caption "nullable"
+  String shopping_mall_ai_backend_products_id FK
+  Int snapshot_index
+  String snapshot_content
+  String snapshot_reason
   DateTime created_at
 }
-"aimall_backend_comments" }o--o| "aimall_backend_posts" : fk_comments_post
-"aimall_backend_comments" }o--o| "aimall_backend_reviews" : fk_comments_review
-"aimall_backend_comments" }o--o| "aimall_backend_comments" : fk_comments_parent
-"aimall_backend_attachments" }o--o| "aimall_backend_posts" : fk_attachments_post
-"aimall_backend_attachments" }o--o| "aimall_backend_comments" : fk_attachments_comment
-"aimall_backend_attachments" }o--o| "aimall_backend_reviews" : fk_attachments_review
-"aimall_backend_snapshots" }o--o| "aimall_backend_posts" : fk_snapshots_post
+"shopping_mall_ai_backend_product_inventories" {
+  String id PK
+  String shopping_mall_ai_backend_products_id FK
+  Int available_quantity
+  Int reserved_quantity
+  DateTime last_update_at
+  String inventory_status
+}
+"shopping_mall_ai_backend_product_options" }o--|| "shopping_mall_ai_backend_products" : product
+"shopping_mall_ai_backend_product_option_units" }o--|| "shopping_mall_ai_backend_product_options" : option
+"shopping_mall_ai_backend_product_bundles" }o--|| "shopping_mall_ai_backend_products" : product
+"shopping_mall_ai_backend_product_category_mappings" }o--|| "shopping_mall_ai_backend_products" : product
+"shopping_mall_ai_backend_product_category_mappings" }o--|| "shopping_mall_ai_backend_product_categories" : category
+"shopping_mall_ai_backend_product_files" }o--|| "shopping_mall_ai_backend_products" : product
+"shopping_mall_ai_backend_product_snapshots" }o--|| "shopping_mall_ai_backend_products" : product
+"shopping_mall_ai_backend_product_inventories" }o--|| "shopping_mall_ai_backend_products" : product
 ```
 
-### `aimall_backend_posts`
+### `shopping_mall_ai_backend_products`
 
-Community Post Entity – Implements community post requirements from '06_aimall-backend_bulletin-board-and-community.md'.
-
-This model represents bulletin board posts (questions, articles, announcements) by customers, sellers, or administrators. Maintains 3NF by separating atomic fields and delegating denormalized/aggregated data to materialized views if needed. Example: User creates a Q&A entry, product question, or system announcement.
-
-Key relationships: References actor via foreign key (customer/seller/administrator via polymorphic pattern by referencing only customer for now, or 'actor_id' if polymorphism were implemented). May be linked to multiple comments and attachments. Product review posts are modelled in 'aimall_backend_reviews'.
-Special behaviors: Only atomic, normalized data, status/visibility managed via fields (no pre-calculated counters).
-
-Properties as follows:
-
-- `id`: Primary Key. Unique identifier for the post record.
-- `customer_id`: Belonged customer's [aimall_backend_customers.id](#aimall_backend_customers). Links post to the creating customer. Nullable for posts by seller/admin (future extension).
-- `title`: Post title – Implements post composition requirements. The headline users see in boards or feeds. Maintains normalization by storing each post's title only once. Example: 'How do AI coupons work?'.
-- `body`: Post content – Implements discussion body requirement. The main textual content. Fully normalized and searchable. Example: 'You can redeem AI coupons every Friday...'.
-- `is_private`: Whether the post is private – Controls visibility per requirements. Ensures that private/public settings are not duplicated elsewhere. Example: A seller-customer product Q&A marked as private.
-- `view_count`: Post view count – For tracking read frequency, enabling moderation or analytics. Not pre-aggregated; raw counter updated per view (always atomic). Example: 12 views.
-- `created_at`: Creation timestamp – Implements system recording and audit requirements. Atomic record of creation. Example: 2025-07-29T15:45:40Z.
-- `updated_at`: Last modification timestamp. Timestamp for auditing edits. Example: 2025-07-29T15:45:40Z.
-- `deleted_at`: Soft deletion timestamp. Allows for compliant redaction/restore. Null if not deleted. Example: null or 2025-07-29T16:00:00Z.
-
-### `aimall_backend_comments`
-
-Community Comment Entity – Implements content/comment system from '06_aimall-backend_bulletin-board-and-community.md'.
-
-Stores user comments/replies attached to posts, reviews, or announcements while normalizing structure (3NF). Each comment belongs to a post or review via foreign key. Maintains strict normalization by holding only atomic, per-comment data.
-Example: User adds a reply to a Q&A, review, or announcement.
-Key relationships: Links to aimall_backend_posts, aimall_backend_reviews, and optionally to parent comments for threads.
-Special behaviors: Soft deletion supported by nullable timestamp; content removed only on explicit deletion for audit.
+Core product entity representing individual commerce items. Contains
+business attributes such as title, slug, description, seller reference,
+commerce status, minimum and maximum order amounts, product type, and
+additional configurations. Every update to this entity must be
+snapshotted to support audit and rollback. Linked via foreign keys to
+seller entities, and by extensions to options, bundles, categories, tags,
+and files. This table is essential for search, browse, and transaction
+eligibility decisions.
 
 Properties as follows:
 
-- `id`: Primary Key. Unique identifier for the comment record.
-- `post_id`: Target post's [aimall_backend_posts.id](#aimall_backend_posts). Links comment to a post entry.
-- `review_id`: Target review's [aimall_backend_reviews.id](#aimall_backend_reviews). Allows comments on reviews as per requirements.
-- `parent_id`: Parent comment's [aimall_backend_comments.id](#aimall_backend_comments). Enables comment/reply threading. Null for top-level comments.
-- `customer_id`: Comment author's [aimall_backend_customers.id](#aimall_backend_customers). Links comment to originating customer (nullable for polymorphic future extension).
-- `body`: Comment content. Main discussion text. Fully normalized; all comments stored atomically. Example: 'Great post, thank you!'
-- `is_private`: Is the comment private? Controls visibility per business rules. Example: true for seller/private thread, false for public comments.
-- `created_at`: Creation timestamp – for full audit trail and recency sorting.
-- `updated_at`: Last mod time – modified for each comment edit as audit record.
-- `deleted_at`: Soft deletion timestamp. Null if active; otherwise marks as deleted for compliance/audit.
+- `id`: Primary Key.
+- `title`
+  > Product title/name displayed to users, unique per seller and channel
+  > context.
+- `slug`: SEO-friendly product slug, unique per channel and seller context.
+- `description`: Detailed product description and content body.
+- `product_type`
+  > Type of product (e.g., physical, digital, service). Guides fulfillment
+  > and inventory logic.
+- `business_status`
+  > Current commerce status (e.g., draft, active, paused, restricted,
+  > deleted). Drives order eligibility and visibility.
+- `min_order_quantity`: Minimum orderable quantity for a valid purchase.
+- `max_order_quantity`: Maximum orderable quantity per transaction.
+- `tax_code`: Applicable tax code category used for compliance and reporting.
+- `sort_priority`: Manual or computed sort priority for product listings.
+- `created_at`: UTC timestamp when product was created.
+- `updated_at`: UTC timestamp when product was last updated.
+- `deleted_at`: Timestamp when product was logically deleted. Null if not deleted.
 
-### `aimall_backend_reviews`
+### `shopping_mall_ai_backend_product_options`
 
-Product Review Entity – Implements review, rating, and moderation features from '06_aimall-backend_bulletin-board-and-community.md'.
-
-Stores atomic product reviews with ratings, authored by customers. Maintains strict 3NF with one record per review. Example: Customer reviews a recently delivered product.
-Key relationships: Links to customer (author) and product (target), both via foreign key referencing respective models in other domains. Review-specific attachments stored separately in aimall_backend_attachments.
-Special behaviors: Supports soft deletion. Moderation handled externally (status flag can be added for further workflows).
-
-Properties as follows:
-
-- `id`: Primary Key. Unique identifier for the review record.
-- `customer_id`: Reviewing customer's [aimall_backend_customers.id](#aimall_backend_customers). Authorship for reference and audit.
-- `product_id`: Target product's [aimall_backend_products.id](#aimall_backend_products). The product reviewed in this entry.
-- `title`: Review title. Concise headline for the review. Normalized by review. Example: 'Super fast delivery!'
-- `body`: Review content text. Main review message from reviewer. Example: 'I received the item within one day; packaging was good.'
-- `rating`: Star rating (1–5) as required by product review features. Integer, enforced by input layer. Example: 4
-- `created_at`: Review creation timestamp for audit/history/personalization.
-- `updated_at`: Timestamp for last review edit. Used for moderation/logging.
-- `deleted_at`: Soft deletion timestamp; null for active, otherwise signals redaction/restoration window.
-
-### `aimall_backend_attachments`
-
-Community Attachment Entity – Implements attachment/media requirements from '06_aimall-backend_bulletin-board-and-community.md'.
-
-Atomic representation of file/image/video/document attached to post, comment, or review. Maintains 3NF by separating main content and attachment storage. Example: User uploads a photo for a review or Q&A.
-Key relationships: Attachments link to posts, comments, or reviews via foreign keys (only one set at a time, reflecting context).
-Special behaviors: All files are stored externally and referenced by URI for privacy/compliance.
+Product option groups (e.g., color, size) that define available choices
+per product. Each option group belongs to a product, provides business
+logic for required/optional/combination selection, and is versioned for
+audit. Directly linked to units for physical SKUs or attributes. Managed
+by sellers/admins in the product management flow.
 
 Properties as follows:
 
-- `id`: Primary Key. Unique identifier for the attachment record.
-- `post_id`: Belonged post's [aimall_backend_posts.id](#aimall_backend_posts). Nullable; links file to a post if set.
-- `comment_id`: Belonged comment's [aimall_backend_comments.id](#aimall_backend_comments). Nullable; file attached to a comment.
-- `review_id`: Belonged review's [aimall_backend_reviews.id](#aimall_backend_reviews). Nullable; attaches to review media.
-- `file_uri`: File URI – Implements external reference for uploaded files by compliance. Atomic URI field only. Example: 's3://bucket/folder/uuid-filename.jpg'
-- `file_type`: File type (image, video, doc) to support moderation. Example: 'image/jpeg'
-- `file_size`: File size in bytes. Enables size filtering and compliance. Example: 328914
-- `created_at`: File creation/upload timestamp.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_products_id`: Belonged product's [shopping_mall_ai_backend_products.id](#shopping_mall_ai_backend_products)
+- `option_name`: Label for option group (e.g., color, size).
+- `required`: Whether option selection is required for order eligibility.
+- `sort_order`: Display order of this option group among product options.
+- `created_at`: Timestamp when this option group was created.
+- `updated_at`: Timestamp when this option group was last updated.
+- `deleted_at`: Soft deletion timestamp for this option group. Null if active.
 
-### `aimall_backend_snapshots`
+### `shopping_mall_ai_backend_product_option_units`
 
-Community Snapshot Entity – Implements the snapshot/photo-sharing feature from '06_aimall-backend_bulletin-board-and-community.md'.
-
-Used to store user image/photo/short-video moments optionally linked to products or posts for the social timeline. Maintains strict normalization (each row = one snapshot). Example: Photo tagged to a product or post for trending feed.
-Key relationships: Foreign keys to products, posts, and customers per context.
-Special behaviors: No denormalized trends/cache; all aggregated/denormalized data resides in views.
+Concrete selectable unit (e.g., Red, XL) within an option group for a
+product. Each unit belongs to a product option, contains value and code
+(for business rules/mapping), and has associated sort/display order. SKU
+inventory is typically tracked at this or a bundled level. Used in
+detailed order and inventory logic.
 
 Properties as follows:
 
-- `id`: Primary Key. Unique identifier for the snapshot record.
-- `product_id`: Tagged product's [aimall_backend_products.id](#aimall_backend_products). Link snapshot to a product for timeline, searchable by product.
-- `post_id`: Tagged post's [aimall_backend_posts.id](#aimall_backend_posts). Enables photo-to-post association.
-- `customer_id`: Creator customer's [aimall_backend_customers.id](#aimall_backend_customers). Snapshot author/reference. Nullable for anonymous posts.
-- `media_uri`: Media file URI – integrity-persistent link to external image/video for compliance. Atomic per snapshot. Example: 's3://bucket/path/snap-uuid.jpg'
-- `caption`: Short caption for post context or social feeds. Example: 'Spring Fashion 2025 - Trending Looks'
-- `created_at`: Moment creation/upload timestamp.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_product_options_id`
+  > Option group [shopping_mall_ai_backend_product_options.id](#shopping_mall_ai_backend_product_options) this
+  > unit belongs to.
+- `unit_value`: Display value for this selectable unit (e.g., Red, XL).
+- `unit_code`: Machine-readable code for business logic, analytics.
+- `sort_order`: Display order for selectable units within option group.
+- `created_at`: Creation timestamp of this unit.
+- `updated_at`: Last updated timestamp of this unit.
+- `deleted_at`: Soft deletion timestamp. Null if active.
+
+### `shopping_mall_ai_backend_product_bundles`
+
+Logical grouping of product option units, representing specific item
+variants (e.g., [Red, Large] bundle = unique SKU). Bundles can be used
+for package deals or unique SKUs with associated inventory/price. Each
+bundle is mapped to option units, owned by the parent product.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_products_id`: Product owning the bundle. [shopping_mall_ai_backend_products.id](#shopping_mall_ai_backend_products)
+- `bundle_name`: Display name for this bundle/variant combination.
+- `sku_code`: Unique code representing this bundle/SKU.
+- `price`: Price for this bundle (could override product base price).
+- `inventory_policy`: Inventory control logic (e.g., track, ignore, by parent config).
+- `is_active`: Whether this bundle is available for sale.
+- `created_at`: Bundle creation timestamp.
+- `updated_at`: Last update timestamp for bundle.
+- `deleted_at`: Soft deaetion timestamp; null if active.
+
+### `shopping_mall_ai_backend_product_tags`
+
+Tag master for products. Tags provide user-searchable, vendor-assigned,
+and/or AI-suggested semantic attributes for categorizing and filtering
+products (e.g., 'eco-friendly', 'new arrival'). Tags can be mapped to
+products many-to-many via relation tables or extensions.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `tag_name`: Business-visible tag (label/content) for product filtering/search.
+- `tag_code`
+  > Machine-assigned code for business logic, search optimization, and
+  > analytics.
+- `created_at`: Tag creation timestamp.
+- `updated_at`: Last update timestamp.
+- `deleted_at`: Tag deletion timestamp; null if not deleted.
+
+### `shopping_mall_ai_backend_product_categories`
+
+Product category master holds the hierarchical definition of product
+categories (e.g., Electronics > Computers > Laptops). Used for
+navigation, search, and data analytics. Every product can belong to
+multiple categories via mapping table.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `category_name`: Display name of this category.
+- `category_code`: Unique code for machine lookup, search, analytics.
+- `parent_id`: Indicates parent category for category tree; null if top level.
+- `category_depth`: Depth of this category in hierarchy (root = 0).
+- `is_active`: Is category shown to users in navigation, search, etc.
+- `sort_order`: Order among sibling categories for display.
+- `created_at`: Category creation timestamp.
+- `updated_at`: Last modified timestamp.
+- `deleted_at`: If deleted, deletion time, or null if active.
+
+### `shopping_mall_ai_backend_product_category_mappings`
+
+Junction table mapping products to categories (many-to-many). Each row
+represents one product-category association, used for navigation,
+filtering, and analytics. Enforces unique (product_id, category_id)
+constraint to prevent duplicates. Not managed independently from
+products/categories.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_products_id`: Product reference. [shopping_mall_ai_backend_products.id](#shopping_mall_ai_backend_products)
+- `shopping_mall_ai_backend_product_categories_id`: Category reference. [shopping_mall_ai_backend_product_categories.id](#shopping_mall_ai_backend_product_categories)
+- `assigned_at`: Timestamp when product-category mapping was created.
+
+### `shopping_mall_ai_backend_product_files`
+
+Files and images attached to products for presentation (main image,
+thumbnails, downloadable files). Stores metadata for display (file type,
+uploader, order) and references file storage for content resolution.
+Files may be managed by admins or sellers depending on product origin.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_products_id`: Referenced product. [shopping_mall_ai_backend_products.id](#shopping_mall_ai_backend_products)
+- `file_uri`: Storage URI or CDN link for file/image.
+- `file_type`: Content type (e.g. image/jpeg, application/pdf).
+- `display_order`: Order among product files -- determines display priority.
+- `is_primary`: Is this file the primary display image?
+- `created_at`: Attachment creation timestamp.
+- `deleted_at`: If deleted, timestamp; null if not deleted.
+
+### `shopping_mall_ai_backend_product_snapshots`
+
+Immutable historical record for point-in-time product state. Each
+snapshot references its original product and contains a full copy of all
+relevant product fields and relations at creation time. Used for audit
+compliance, evidence in disputes, and rollback. Snapshots are managed
+only via versioning logic and are never updated after creation.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_products_id`
+  > Product record this snapshot covers. {@link
+  > shopping_mall_ai_backend_products.id}
+- `snapshot_index`: Sequence number or revision index for versioning.
+- `snapshot_content`: Serialized JSON or business object containing historical data for audit.
+- `snapshot_reason`
+  > Business reason or trigger for snapshot (manual update, system,
+  > correction, rollback, etc.).
+- `created_at`: Time when snapshot was created.
+
+### `shopping_mall_ai_backend_product_inventories`
+
+Tracks stock level for products or bundles. Each record references a
+product or bundle, shows available quantity, reserved quantity, and last
+movement time. Provides base view for inventory tracking, order
+commitment, and business analysis. May point to either product or bundle
+as needed by business logic (union handled at application tier). Not
+independently managed by end users.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_products_id`
+  > Product this inventory is linked to. {@link
+  > shopping_mall_ai_backend_products.id}
+- `available_quantity`: Units available for sale (not reserved/committed).
+- `reserved_quantity`: Committed units pending order completion.
+- `last_update_at`: Time of the most recent stock movement (in/out/adjust).
+- `inventory_status`
+  > Business status of inventory (e.g., in_stock, out_of_stock, reserved,
+  > discontinued).
 
 ## Carts
 
 ```mermaid
 erDiagram
-"aimall_backend_carts" {
+"shopping_mall_ai_backend_carts" {
   String id PK
-  String aimall_backend_customer_id FK,UK "nullable"
-  String session_token UK "nullable"
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  String shopping_mall_ai_backend_customer_session_id FK "nullable"
+  String cart_token UK
+  String status
+  DateTime expires_at "nullable"
+  DateTime last_merged_at "nullable"
+  String note "nullable"
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_cart_items" {
+"shopping_mall_ai_backend_cart_items" {
   String id PK
-  String aimall_backend_cart_id FK
-  String aimall_backend_product_id FK
-  String aimall_backend_product_option_id FK "nullable"
-  String aimall_backend_sku_id FK "nullable"
+  String shopping_mall_ai_backend_cart_id FK
+  String shopping_mall_ai_backend_product_snapshot_id FK
   Int quantity
-  Float unit_price_snapshot
-  Float discount_snapshot "nullable"
-  String selected_name_display "nullable"
+  String option_code
+  String bundle_code "nullable"
+  String note "nullable"
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_cart_items" }o--|| "aimall_backend_carts" : cart
+"shopping_mall_ai_backend_cart_item_snapshots" {
+  String id PK
+  String shopping_mall_ai_backend_cart_item_id FK
+  String snapshot_data
+  String reason
+  DateTime created_at
+}
+"shopping_mall_ai_backend_cart_coupon_usages" {
+  String id PK
+  String shopping_mall_ai_backend_cart_id FK
+  String shopping_mall_ai_backend_coupon_id FK
+  DateTime applied_at
+  String status
+  String stack_group "nullable"
+  String note "nullable"
+}
+"shopping_mall_ai_backend_cart_mileage_usages" {
+  String id PK
+  String shopping_mall_ai_backend_cart_id FK
+  String shopping_mall_ai_backend_mileage_id FK
+  Float used_amount
+  String reason
+  DateTime applied_at
+  String note "nullable"
+}
+"shopping_mall_ai_backend_cart_items" }o--|| "shopping_mall_ai_backend_carts" : cart
+"shopping_mall_ai_backend_cart_item_snapshots" }o--|| "shopping_mall_ai_backend_cart_items" : cartItem
+"shopping_mall_ai_backend_cart_coupon_usages" }o--|| "shopping_mall_ai_backend_carts" : cart
+"shopping_mall_ai_backend_cart_mileage_usages" }o--|| "shopping_mall_ai_backend_carts" : cart
 ```
 
-### `aimall_backend_carts`
+### `shopping_mall_ai_backend_carts`
 
-Cart entity for persistent session/account shopping cart, per 07_aimall-backend_cart-system.md. Implements shopping cart ownership and lifecycle, supporting both account-linked and guest session carts. Ensures 3NF by only containing ownership/session metadata and maintaining relations to items. Enforces business logic for one active cart per customer/session via unique constraints. Primary use: container for items prior to purchase/order creation.
-
-Properties as follows:
-
-- `id`: Primary Key. Uniquely identifies the cart instance.
-- `aimall_backend_customer_id`: Owned account's [aimall_backend_customers.id](#aimall_backend_customers). Nullable for anonymous/guest carts. Implements account-tied cart merging requirement.
-- `session_token`: Session or device token for anonymous carts; one of this or aimall_backend_customer_id should be present. Allows unique cart per session. Nullable for account-tied carts.
-- `created_at`: Cart creation timestamp. For auditing, recovery, and analytics use cases.
-- `updated_at`: Cart update timestamp. For sync, concurrent editing, and recovery. Always required.
-
-### `aimall_backend_cart_items`
-
-Cart item entity for individual products/options/SKUs attached to a cart, per 07_aimall-backend_cart-system.md. Strictly normalized to 3NF: each row references only atomic, business-level selections for one cart, product, option, and SKU. No pre-calculated or denormalized data: totals and calculations only in order or reporting models. Guarantees item distinction via composite unique key and references only valid products/SKUs/options across domains.
+Represents the customer's shopping cart for any active session or channel
+(guest/member/linked session). Tracks current cart status, associated
+customer/session reference, and captures any detailed cart-note, coupon,
+mileage, or deposit status in real time. Critical as mutable pre-order
+record but uniquely preserved through immutable snapshots for
+audit/evidence. Users manage, merge, or clear carts independently per
+channel/session context. Supports omnichannel transfer.
 
 Properties as follows:
 
-- `id`: Primary Key. Identifies the cart item row uniquely.
-- `aimall_backend_cart_id`: The cart's [aimall_backend_carts.id](#aimall_backend_carts) this item is attached to. Implements cart containment. Required always.
-- `aimall_backend_product_id`: The product's [aimall_backend_products.id](#aimall_backend_products) for this item. Implements product line selection requirement.
-- `aimall_backend_product_option_id`: The product option's [aimall_backend_product_options.id](#aimall_backend_product_options) (size, color, etc). Nullable if product has no options. Implements variant selection.
-- `aimall_backend_sku_id`: The SKU's [aimall_backend_skus.id](#aimall_backend_skus) representing the selected product variant. Nullable for unkeyed SKUs. Validates inventory/restrictions at checkout.
-- `quantity`: Requested quantity. Implements unit selection policy, always positive integer. No pre-calculation, strictly atomic. Normalized per 3NF.
-- `unit_price_snapshot`: Unit price snapshot at time of addition. Fulfills price/discount audit requirement. Must not be pre-calculated for totals, normalization preserved.
-- `discount_snapshot`: Discount value per item at time of assignment. Captures promo logic at item addition. Nullable if no discount applied. Calculation delegated to reporting/views.
-- `selected_name_display`: Optional UI-friendly product+option name for easier display in UI/cart. Optional, not required for backend operation.
-- `created_at`: Timestamp: item creation. For lifecycle/audit tracking. Required.
-- `updated_at`: Timestamp: item update. Required for change tracking.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_customer_id`
+  > Linked customer's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers). Null for
+  > guest, required for member.
+- `shopping_mall_ai_backend_customer_session_id`
+  > Current active session's {@link
+  > shopping_mall_ai_backend_customer_sessions.id}. Null if persistent cart
+  > not linked to a specific session.
+- `cart_token`
+  > Opaque unique ID for cart. Used to re-link carts across devices or for
+  > guest workflows.
+- `status`
+  > Cart lifecycle status (e.g. active, submitted, merged, cleared,
+  > abandoned).
+- `expires_at`: Cart expiration datetime (for auto-clear, guest, or session rules).
+- `last_merged_at`
+  > Datetime this cart was last merged with another cart (for omnichannel
+  > workflows).
+- `note`
+  > Customer's or business's cart note, instruction, or memo. Searchable
+  > field.
+- `created_at`: Creation timestamp.
+- `updated_at`: Last update timestamp.
+- `deleted_at`: Soft deletion timestamp for evidence trail.
+
+### `shopping_mall_ai_backend_cart_items`
+
+Individual and option-specific product items in a cart. Each record holds
+selection quantity, attached options, and referential snapshot pointer.
+Required for precise item, bundle, and variant management prior to
+checkout. Editable by the user per cart context. Historical traces and
+adjustments are preserved through linked snapshots.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_cart_id`: Parent cart's [shopping_mall_ai_backend_carts.id](#shopping_mall_ai_backend_carts).
+- `shopping_mall_ai_backend_product_snapshot_id`
+  > Product snapshot's [shopping_mall_ai_backend_product_snapshots.id](#shopping_mall_ai_backend_product_snapshots)
+  > for price, title, attributes at time of add-to-cart.
+- `quantity`: Quantity for this item (minimum 1 per business policy).
+- `option_code`
+  > Aggregate code for option/variant selection (from product option units,
+  > enables unique constraint for per-product/item options).
+- `bundle_code`: Product bundle code if selected (nullable if not used).
+- `note`: Customer's note for this cart item (e.g. gift, details). Searchable field.
+- `created_at`: Creation timestamp.
+- `updated_at`: Last update timestamp.
+- `deleted_at`: Soft deletion timestamp.
+
+### `shopping_mall_ai_backend_cart_item_snapshots`
+
+Immutable snapshot of all cart item details at each add/edit/remove
+event, for business evidence and audit. Stores all relevant business
+fields, referential link to both original cart item and snapshot data,
+and a timestamp of when the snapshot was recorded. Ensures evidence
+preservation if cart or item is later edited or deleted.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_cart_item_id`
+  > Cart item's [shopping_mall_ai_backend_cart_items.id](#shopping_mall_ai_backend_cart_items) being
+  > snapshotted.
+- `snapshot_data`
+  > Serialized (JSON/text) snapshot of all cart item business fields for
+  > precise historical evidence. Not for query logic.
+- `reason`
+  > Snapshot creation reason (add, update, remove, merge, manual, evidence,
+  > etc).
+- `created_at`: Snapshot creation timestamp.
+
+### `shopping_mall_ai_backend_cart_coupon_usages`
+
+Per-cart usage log for all applied coupons, including time of
+application, validation status, and associated business rules. Tied to
+cart (not global basket) to ensure compliance with coupon stacking,
+exclusivity, order, eligibility, and evidence trace. May have more than
+one per cart, depending on business constraints.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_cart_id`: Applied on related cart's [shopping_mall_ai_backend_carts.id](#shopping_mall_ai_backend_carts).
+- `shopping_mall_ai_backend_coupon_id`: Applied coupon's [shopping_mall_ai_backend_coupons.id](#shopping_mall_ai_backend_coupons).
+- `applied_at`: Datetime coupon was applied to this cart.
+- `status`
+  > Current validation/application status (active, locked, rejected, used,
+  > etc.)
+- `stack_group`: Label for stacking logic group (if stacking/exclusivity policy applies).
+- `note`: Admin/business note for coupon usage.
+
+### `shopping_mall_ai_backend_cart_mileage_usages`
+
+Cart-level historical log of all mileage (point) accrual or consumption
+events tied to this cart, including validation, redemption, and evidence
+of application. Subsidiary to the cart, but required for audit and
+compliance (e.g., only redeemable once per line, balance checks). All
+business constraints logged; supports composite queries for fraud or
+reward optimization.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_cart_id`: Applied on related cart's [shopping_mall_ai_backend_carts.id](#shopping_mall_ai_backend_carts).
+- `shopping_mall_ai_backend_mileage_id`: Linked mileage balance's [shopping_mall_ai_backend_mileages.id](#shopping_mall_ai_backend_mileages).
+- `used_amount`
+  > Mileage (points) used or accrued. Negative for redemption, positive for
+  > accrual.
+- `reason`
+  > Business reason for mileage usage or accrual (e.g., redeem, bonus,
+  > policy).
+- `applied_at`: Datetime of usage/accrual event.
+- `note`: Admin/business note for this transaction.
 
 ## Orders
 
 ```mermaid
 erDiagram
-"aimall_backend_orders" {
+"shopping_mall_ai_backend_orders" {
   String id PK
-  String customer_id FK
-  String seller_id FK
-  String address_id FK
-  String order_number UK
-  String order_status
+  String shopping_mall_ai_backend_customer_id FK
+  String shopping_mall_ai_backend_channel_id FK
+  String shopping_mall_ai_backend_seller_id FK "nullable"
+  String code
+  String status
   Float total_amount
+  String currency
+  DateTime ordered_at
+  DateTime confirmed_at "nullable"
+  DateTime cancelled_at "nullable"
+  DateTime closed_at "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_order_items" {
+  String id PK
+  String shopping_mall_ai_backend_order_id FK
+  String shopping_mall_ai_backend_product_id FK
+  String shopping_mall_ai_backend_product_option_id FK "nullable"
+  String shopping_mall_ai_backend_product_bundle_id FK "nullable"
+  String product_title
+  Int quantity
+  Float unit_price
+  Float discount_amount
+  Float final_amount
   String currency
   DateTime created_at
   DateTime updated_at
-  DateTime archived_at "nullable"
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_order_items" {
+"shopping_mall_ai_backend_order_item_snapshots" {
   String id PK
-  String order_id FK
-  String product_id FK
-  String product_option_id FK "nullable"
-  String item_name
+  String shopping_mall_ai_backend_order_item_id FK
+  String snapshot_reason
   Int quantity
   Float unit_price
-  Float total_price
+  Float discount_amount
+  Float final_amount
+  DateTime created_at
 }
-"aimall_backend_payments" {
+"shopping_mall_ai_backend_order_payments" {
   String id PK
-  String order_id FK
+  String shopping_mall_ai_backend_order_id FK
   String payment_method
   Float amount
   String currency
-  String transaction_id "nullable"
-  DateTime paid_at
+  String status
+  String external_reference "nullable"
+  DateTime requested_at
+  DateTime completed_at "nullable"
+  DateTime failed_at "nullable"
+  DateTime cancelled_at "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_shipments" {
+"shopping_mall_ai_backend_order_payment_attempts" {
   String id PK
-  String order_id FK
-  String shipment_address_id FK
-  String carrier
-  String tracking_number "nullable"
-  String shipment_status
-  DateTime shipped_at "nullable"
-  DateTime delivered_at "nullable"
+  String shopping_mall_ai_backend_order_payment_id FK
+  String attempt_state
+  String error_message "nullable"
+  String provider_code "nullable"
+  DateTime requested_at
+  DateTime completed_at "nullable"
   DateTime created_at
 }
-"aimall_backend_order_snapshots" {
+"shopping_mall_ai_backend_order_deliveries" {
   String id PK
-  String order_id FK
-  String snapshot_type
-  String snapshot_data
-  DateTime snapshot_at
+  String shopping_mall_ai_backend_order_id FK
+  String delivery_status
+  String logistics_provider "nullable"
+  String tracking_number "nullable"
+  DateTime shipped_at "nullable"
+  DateTime delivered_at "nullable"
+  String delivery_notes "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_order_items" }o--|| "aimall_backend_orders" : order_to_order_items
-"aimall_backend_payments" }o--|| "aimall_backend_orders" : order_to_payments
-"aimall_backend_shipments" }o--|| "aimall_backend_orders" : order_to_shipments
-"aimall_backend_order_snapshots" }o--|| "aimall_backend_orders" : order_to_snapshots
+"shopping_mall_ai_backend_order_delivery_events" {
+  String id PK
+  String shopping_mall_ai_backend_order_delivery_id FK
+  String event_type
+  String event_context "nullable"
+  DateTime logged_at
+  DateTime created_at
+}
+"shopping_mall_ai_backend_order_returns" {
+  String id PK
+  String shopping_mall_ai_backend_order_id FK
+  String shopping_mall_ai_backend_order_item_id FK
+  String return_reason
+  String status
+  DateTime requested_at
+  DateTime processed_at "nullable"
+  DateTime completed_at "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_order_exchanges" {
+  String id PK
+  String shopping_mall_ai_backend_order_id FK
+  String shopping_mall_ai_backend_order_item_id FK
+  String exchange_reason
+  String status
+  DateTime requested_at
+  DateTime processed_at "nullable"
+  DateTime completed_at "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_order_refunds" {
+  String id PK
+  String shopping_mall_ai_backend_order_id FK
+  String refund_reason
+  String refund_type
+  Float amount
+  String currency
+  String status
+  DateTime requested_at
+  DateTime processed_at "nullable"
+  DateTime completed_at "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_order_incidents" {
+  String id PK
+  String shopping_mall_ai_backend_order_id FK
+  String incident_type
+  String context "nullable"
+  DateTime event_at
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_order_items" }o--|| "shopping_mall_ai_backend_orders" : order
+"shopping_mall_ai_backend_order_item_snapshots" }o--|| "shopping_mall_ai_backend_order_items" : orderItem
+"shopping_mall_ai_backend_order_payments" }o--|| "shopping_mall_ai_backend_orders" : order
+"shopping_mall_ai_backend_order_payment_attempts" }o--|| "shopping_mall_ai_backend_order_payments" : orderPayment
+"shopping_mall_ai_backend_order_deliveries" }o--|| "shopping_mall_ai_backend_orders" : order
+"shopping_mall_ai_backend_order_delivery_events" }o--|| "shopping_mall_ai_backend_order_deliveries" : orderDelivery
+"shopping_mall_ai_backend_order_returns" }o--|| "shopping_mall_ai_backend_orders" : order
+"shopping_mall_ai_backend_order_returns" }o--|| "shopping_mall_ai_backend_order_items" : orderItem
+"shopping_mall_ai_backend_order_exchanges" }o--|| "shopping_mall_ai_backend_orders" : order
+"shopping_mall_ai_backend_order_exchanges" }o--|| "shopping_mall_ai_backend_order_items" : orderItem
+"shopping_mall_ai_backend_order_refunds" }o--|| "shopping_mall_ai_backend_orders" : order
+"shopping_mall_ai_backend_order_incidents" }o--|| "shopping_mall_ai_backend_orders" : order
 ```
 
-### `aimall_backend_orders`
+### `shopping_mall_ai_backend_orders`
 
-Order master record - This implements the foundational requirement from the Order and Delivery System for robust, scalable handling of customer orders from placement to fulfillment (Section 8/Order and Delivery). 
-
-Tracks primary order business data for each customer order including status, seller linkage, total amounts, and audit timestamps. Maintains 3NF normalization by breaking out order items, payments, and shipments into separate tables. For example, one entry per completed order. 
-
-Key relationships: links to customer (already in Actors), ships to one address, references associated order snapshots. Special behaviors: immutable after archival; only modifiable in allowed statuses; supports audit trail.
-
-Properties as follows:
-
-- `id`: Primary Key.
-- `customer_id`: Belonged customer's [aimall_backend_customers.id](#aimall_backend_customers). Used to attribute each order to its owner in the Actors domain.
-- `seller_id`: Owning seller's [aimall_backend_sellers.id](#aimall_backend_sellers) for multi-vendor order scenarios.
-- `address_id`: Delivery address for the order. References [aimall_backend_addresses.id](#aimall_backend_addresses) from Actors domain.
-- `order_number`: Unique, business-facing order number. Implements requirement for order tracking, customer communication, and admin search. Ensures normalization by keeping system-int/uuid as primary and a unique business string for reference. For example: 'ORD-20250729-0001'. Constraint: uniquely indexed.
-- `order_status`: Current order status (e.g., 'pending', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'). Implements fulfillment state machine; ensures normalization by using enumerative string. For example: 'paid'.
-- `total_amount`: Total order amount at placement (snapshot of the customer-facing amount). Implements requirement for payment, reporting, and analysis. No auto-calc in table (all raw amounts). For example: 125000.00. Constraint: always >= 0.
-- `currency`: Order currency code (e.g., 'KRW', 'USD'). Implements requirement to support multi-currency orders. Ensures normalization by storing ISO currency code. For example: 'KRW'. Applies to all order flows.
-- `created_at`: Order creation timestamp. Implements requirement for auditability, KPI (order intake rate). Normalization is maintained as each event is atomic; non-derived. Example: '2025-07-29T15:45:40Z'.
-- `updated_at`: Last modification time for the order record. Implements audit and monitoring requirements. Usage: admin tracking, compliance. Not derived, always updated in place. Example: '2025-07-29T17:01:10Z'.
-- `archived_at`: Timestamp when this order was marked as immutable/archived. Implements audit and compliance feature for order records lifecycle. Null if not archived. For example: null or '2025-07-30T10:37:20Z'.
-
-### `aimall_backend_order_items`
-
-Order item line - This implements the detail breakdown for each product in an order, per the requirement that orders can contain multiple items (Section 8: multi-item, multi-seller order scenarios). 
-
-Each record represents one product (SKU/option/bundle) purchased in the order, allowing for complete normalization without pre-aggregated data. Maintains 3NF: all variant, quantity, and item price data atomic. For example: an order with 2 different goods results in 2 rows here.
-
-Key relationships: Belongs to an order, references a product and option from Products domain. Special behaviors: immutable after order is archived.
+Core entity representing the customer's commercial transaction. Records
+all business events and status changes in an order lifecycle, including
+references to the customer, channel, and seller. Enforces regulatory and
+audit constraints. Supports evidence preservation and compliance
+investigation. Designed for independent creation, search, and legal
+traceability.
 
 Properties as follows:
 
 - `id`: Primary Key.
-- `order_id`: Parent order's [aimall_backend_orders.id](#aimall_backend_orders). Enforces relationship between line item and master order.
-- `product_id`: Purchased product's [aimall_backend_products.id](#aimall_backend_products) in Products domain. Ensures normalized reference.
-- `product_option_id`: Ordered product option's [aimall_backend_product_options.id](#aimall_backend_product_options). Supports SKU/variant distinctions. Null if none (e.g. for base products).
-- `item_name`: Display name of item at time of purchase. Implements snapshot of purchase detail per order, used for support, returns, and analytics. For example: 'AI Smart Speaker' (not a calc field, denormalized to support legal compliance on order receipts).
-- `quantity`: Ordered quantity for this item. Business meaning: inventory deduction, analytics, returns processing. For example: 2. Always positive integer.
-- `unit_price`: Unit price snapshot at purchase time. Fulfills critical requirement for audit trail, analytics, claims. Not a calc field—this field preserves item price history. For example: 59000.0.
-- `total_price`: Total price = unit_price * quantity at time of order. Snapshot requirement for precise reconciliation. Not a pre-calculated aggregate (single-item only). For example: 118000.0.
+- `shopping_mall_ai_backend_customer_id`: Belonged customer's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `shopping_mall_ai_backend_channel_id`: Order's channel [shopping_mall_ai_backend_channels.id](#shopping_mall_ai_backend_channels).
+- `shopping_mall_ai_backend_seller_id`
+  > Order's seller [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers). May be
+  > nullable if not routed/split yet.
+- `code`
+  > Business order number (unique per channel, for external and customer
+  > reference).
+- `status`
+  > Business state/code for the current order (e.g. pending, confirmed, paid,
+  > shipped, delivered, cancelled, etc.).
+- `total_amount`
+  > Total amount of the order (final charge after all discounts and
+  > adjustments).
+- `currency`: Order currency (ISO 4217, e.g. KRW, USD, JPY).
+- `ordered_at`
+  > Timestamp the order was submitted by the customer or created via an
+  > upstream channel.
+- `confirmed_at`
+  > Timestamp the order was business-confirmed (assigns stock and locks
+  > payment intent).
+- `cancelled_at`: Timestamp if/when the order was cancelled, by user or operator.
+- `closed_at`: Timestamp when the order was finalized (delivered, refunded, etc.).
+- `created_at`: System record creation timestamp.
+- `updated_at`: System record update timestamp.
+- `deleted_at`: Soft delete timestamp. Null if record is active.
 
-### `aimall_backend_payments`
+### `shopping_mall_ai_backend_order_items`
 
-Order payment transaction - Implements requirement for flexible, auditable order payments (Section 8 & Discount/Loyalty). Records each payment event tied to an order, including multiple forms (split payment, coupon, points). Maintains 3NF by itemizing each transaction event, never aggregating in-line to regular order tables. For example: an order with cash + points records two entries here. Key relationships: to order, and optionally, coupon/loyalty/discount entities in other domains. Special behaviors: amount integrity, immutable after completion, joinable via order_id.
-
-Properties as follows:
-
-- `id`: Primary Key.
-- `order_id`: The order this payment is associated with. References [aimall_backend_orders.id](#aimall_backend_orders).
-- `payment_method`: Payment channel/type used (e.g., 'credit_card', 'deposit', 'coupon', 'loyalty_points', 'virtual_account'). Implements requirement for multi-mode payments per order. Not a calculated or enum field, but controlled by business logic.
-- `amount`: Amount paid via this transaction. Implements requirement for sum-to-total integrity for each order. Use for audit/reconciliation. For example: 59100.0.
-- `currency`: Payment currency code such as 'KRW', 'USD'. Implements multi-currency flexibility, maintains normalization. For example: 'KRW'.
-- `transaction_id`: External payment processor's transaction or confirmation code. Implements traceability/chargebacks. May be nullable for internal balance, coupon cases. For example: 'PAY2025072900023'.
-- `paid_at`: Timestamp when this payment event was processed and confirmed. Auditable event. Example: '2025-07-29T16:44:51Z'.
-
-### `aimall_backend_shipments`
-
-Shipment record for an order - Implements requirement for real-time order/delivery tracking and logistics integration (Section 8). Each record denotes shipment and delivery event for a part/all of an order. Maintains 3NF by separating shipment events from orders, allowing for multi-seller/partial-ship. For example: two shipments for split orders, or replacements. Key relationships: references order, shipment address (Actors), and shipper; can be joined via order_id for fulfillment queries. Special behaviors: immutable after delivery except for tracking updates.
-
-Properties as follows:
-
-- `id`: Primary Key.
-- `order_id`: Linked order's [aimall_backend_orders.id](#aimall_backend_orders). Enforces relationship with primary order record.
-- `shipment_address_id`: Target delivery address for this shipment. References [aimall_backend_addresses.id](#aimall_backend_addresses).
-- `carrier`: Shipping carrier name—recorded for handoff, customer service, compliance. Not a lookup or derived type; can be any contracted vendor name. For example: 'CJ Logistics'.
-- `tracking_number`: Carrier-provided tracking code. Key for customer tracking and support, audit logs. For example: '1Z9999Y70200370006', can be null for in-process or non-tracked deliveries.
-- `shipment_status`: Current fulfillment status ('pending', 'shipped', 'delivered', etc.). Implements state machine for delivery steps.
-- `shipped_at`: Shipment departure timestamp from warehouse. Used for fulfillment metrics. Null if not shipped.
-- `delivered_at`: Final delivery confirmation timestamp. Used for SLAs, customer comms, audit trails. Null if not delivered yet.
-- `created_at`: Record creation timestamp for shipment event. For audit trail and logistics management. For example: '2025-07-29T16:32:00Z'.
-
-### `aimall_backend_order_snapshots`
-
-Order state snapshot/audit trail - Implements snapshot-based pattern for order/invoice auditing and rollback (Section 8, System Overview, Technical+Compliance). Each entry is a full serialized snapshot of the order’s business state at a critical event (placement, modification, cancelation). Maintains 3NF by storing atomic, versioned snapshots tied to an order (never redundant calc/agg fields in main tables). For example: one entry at order creation, another on update/cancel. Key relationships: references order; supports audit/compliance. Special behaviors: append-only, never mutable/deletable except under strict retention policies.
+Line items for individual products/options within an order. Supports
+bundles, variants, quantity, and per-item price/discount. Managed only in
+context of an order. No direct API/CRUD, but required for evidence and
+fulfillment traceability.
 
 Properties as follows:
 
 - `id`: Primary Key.
-- `order_id`: The underlying order being snapshotted [aimall_backend_orders.id](#aimall_backend_orders).
-- `snapshot_type`: Categorizes snapshot event ('created', 'modified', 'cancelled', 'fulfilled', etc.). Used for auditability and compliance. For example: 'created'.
-- `snapshot_data`: Serialized JSON string of the full order record and related items/payments/shipments at this point in time. Implements snapshot/audit trail requirement. For example: '{...}' (not directly queryable fields; used for rollback/forensics).
-- `snapshot_at`: Time at which the snapshot was taken. Ensures correct event ordering (audit). For example: '2025-07-29T17:03:11Z'.
+- `shopping_mall_ai_backend_order_id`: Parent order's [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+- `shopping_mall_ai_backend_product_id`: Purchased product's [shopping_mall_ai_backend_products.id](#shopping_mall_ai_backend_products).
+- `shopping_mall_ai_backend_product_option_id`: Selected option's [shopping_mall_ai_backend_product_options.id](#shopping_mall_ai_backend_product_options).
+- `shopping_mall_ai_backend_product_bundle_id`
+  > If bundled, the bundle's {@link
+  > shopping_mall_ai_backend_product_bundles.id}.
+- `product_title`
+  > Denormalized copy of product title at time of order (evidence,
+  > compliance).
+- `quantity`: Ordered quantity for this line item.
+- `unit_price`: Unit price at time of order (pre-discount).
+- `discount_amount`: Discount applied to this line (may be 0).
+- `final_amount`: Final charge for this line (unit * qty - discounts).
+- `currency`: Currency code for item charge.
+- `created_at`: Record creation timestamp.
+- `updated_at`: Record update timestamp.
+- `deleted_at`: Soft delete timestamp. Null if record is active.
+
+### `shopping_mall_ai_backend_order_item_snapshots`
+
+Historical snapshot versions of order items. Tracks changes to items
+(e.g. price correction, option change, after-sale) for full audit trail
+and evidence purposes. Append-only, not user-editable. Used for dispute
+resolution and compliance reporting.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_item_id`: The original order item's [shopping_mall_ai_backend_order_items.id](#shopping_mall_ai_backend_order_items).
+- `snapshot_reason`
+  > Business reason/context for the snapshot (e.g. after-sales edit, price
+  > change).
+- `quantity`: Snapshot of ordered quantity at this version.
+- `unit_price`: Snapshot unit price at this version.
+- `discount_amount`: Snapshot discount value at this version.
+- `final_amount`: Snapshot final value at this version.
+- `created_at`: Snapshot creation timestamp (versioned history).
+
+### `shopping_mall_ai_backend_order_payments`
+
+Tracks all payment attempts and records associated with an order.
+Supports multiple payment methods and split/partial charge scenarios.
+Used for audit, fraud detection, reconciliation, and compliance. Managed
+in context of the order; no direct creation by user.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_id`: Linked order's [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+- `payment_method`
+  > Business code for payment method (e.g. card, bank_transfer, deposit,
+  > mileage, coupon, etc).
+- `amount`: Amount charged by this payment record.
+- `currency`: Payment currency.
+- `status`: Payment status (pending, succeeded, failed, refunded, etc).
+- `external_reference`: External payment provider identifier (if any).
+- `requested_at`: Payment requested timestamp.
+- `completed_at`: Payment completed timestamp (if succeeded).
+- `failed_at`: Payment failed timestamp, if any.
+- `cancelled_at`: Payment cancellation timestamp.
+- `created_at`: Creation timestamp for system logging.
+- `updated_at`: Update timestamp for system logging.
+- `deleted_at`: Soft delete timestamp.
+
+### `shopping_mall_ai_backend_order_payment_attempts`
+
+Records every attempt to process payment (for retries, partial payments,
+failures, etc). Used from security, compliance, and business evidence
+perspectives. Append-only. Linked to specific order payment entries.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_payment_id`: Parent payment's [shopping_mall_ai_backend_order_payments.id](#shopping_mall_ai_backend_order_payments).
+- `attempt_state`: Payment attempt result code (pending, success, fail, retry, etc).
+- `error_message`: Error message (if any failure or rejection occurred).
+- `provider_code`: Payment provider code (if used).
+- `requested_at`: Payment attempt timestamp (system clocked).
+- `completed_at`: Attempt completion timestamp (if success/fail).
+- `created_at`: System record creation time.
+
+### `shopping_mall_ai_backend_order_deliveries`
+
+Represents single or partial physical delivery event(s) related to an
+order (e.g., split shipments, staggered delivery). Each links to the
+order header, with detail for tracking, status, and timeline.
+Fulfillment/logistics, not directly user-managed.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_id`: Parent order's [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+- `delivery_status`: Delivery state (ready, in_progress, complete, failed, returned, etc).
+- `logistics_provider`: Fulfillment carrier/partner code.
+- `tracking_number`: Logistics carrier tracking ID.
+- `shipped_at`: Datetime shipped or sent to carrier.
+- `delivered_at`: Datetime completed by carrier (delivered, received).
+- `delivery_notes`: Any user/business free-text notes about delivery.
+- `created_at`: Creation timestamp for record.
+- `updated_at`: Update timestamp.
+- `deleted_at`: Soft delete timestamp.
+
+### `shopping_mall_ai_backend_order_delivery_events`
+
+Chronological event logs for all delivery status changes and logistics
+evidence for a shipment. Used for business traceability, customer
+service, and compliance. Append-only, one per discrete timeline event or
+external update.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_delivery_id`: Parent delivery's [shopping_mall_ai_backend_order_deliveries.id](#shopping_mall_ai_backend_order_deliveries).
+- `event_type`: Event type (status update, exception, checkpoint, etc).
+- `event_context`: Free-text event context for traceability/evidence.
+- `logged_at`: Timestamp for the event.
+- `created_at`: System creation timestamp.
+
+### `shopping_mall_ai_backend_order_returns`
+
+Return requests/records for order items. Linked to orders and specific
+line-items. Manages business context (reason, status, evidence). Managed
+as after-sales action; used for refund/exchange workflows. Subsidiary
+table with compliance/audit focus.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_id`: Linked order's [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+- `shopping_mall_ai_backend_order_item_id`: Linked item's [shopping_mall_ai_backend_order_items.id](#shopping_mall_ai_backend_order_items).
+- `return_reason`: Reason provided by customer for return.
+- `status`
+  > Business logic status for the return process (requested, approved,
+  > rejected, completed).
+- `requested_at`: Timestamp when return was requested.
+- `processed_at`: Timestamp when processed (approved/rejected).
+- `completed_at`: Return process completion timestamp.
+- `created_at`: System creation date.
+- `updated_at`: Last update timestamp.
+- `deleted_at`: Soft delete timestamp.
+
+### `shopping_mall_ai_backend_order_exchanges`
+
+Exchange process records for items/orders. Handles after-sales exchanges
+for eligible orders/items. Managed in context of original order/item. For
+compliance and traceability (subsidiary).
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_id`: Original order's [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+- `shopping_mall_ai_backend_order_item_id`: Original item's [shopping_mall_ai_backend_order_items.id](#shopping_mall_ai_backend_order_items).
+- `exchange_reason`: Reason provided for exchange.
+- `status`
+  > Current exchange process status (requested, approved, rejected,
+  > completed, etc).
+- `requested_at`: Exchange requested timestamp.
+- `processed_at`: Approval/rejection processed timestamp.
+- `completed_at`: Exchange finalized timestamp.
+- `created_at`: System create timestamp.
+- `updated_at`: Update timestamp for record.
+- `deleted_at`: Soft delete timestamp.
+
+### `shopping_mall_ai_backend_order_refunds`
+
+Refund requests/records for orders or individual items. Supports
+full/partial, per-item or per-order refunds. Subsidiary with full
+business and audit context for compliance reporting. Managed by
+operator/admin or automated logic.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_id`: Linked order's [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+- `refund_reason`: Reason for refund (e.g. customer request, system error, product issue).
+- `refund_type`: Type of refund (full, partial, per-item, etc).
+- `amount`: Amount refunded.
+- `currency`: Currency of refund.
+- `status`
+  > Current status of the refund (requested, approved, rejected, paid,
+  > completed, etc).
+- `requested_at`: Refund requested time.
+- `processed_at`: Approval/rejection processing time.
+- `completed_at`: Refund completion timestamp.
+- `created_at`: Record creation timestamp.
+- `updated_at`: Record update timestamp.
+- `deleted_at`: Soft delete timestamp.
+
+### `shopping_mall_ai_backend_order_incidents`
+
+Tracks incidents, exceptions, or evidence logs tied to orders: e.g.
+fraud, user disputes, chargeback evidence, compliance events. Managed
+only by admin/operator actions; append-only for audit, legal, and
+business traceability.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_order_id`: Order's [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+- `incident_type`
+  > Business code for incident type (fraud, dispute, system_error,
+  > compliance, evidence, etc).
+- `context`: Free-text or structured JSON business context.
+- `event_at`: When the incident/event occurred.
+- `created_at`: System record created at.
+- `updated_at`: Updated at for record changes.
+- `deleted_at`: Soft delete timestamp.
 
 ## Coupons
 
 ```mermaid
 erDiagram
-"aimall_backend_coupons" {
+"shopping_mall_ai_backend_coupons" {
   String id PK
-  String discount_campaign_id FK
-  String customer_id FK "nullable"
-  String code UK
+  String shopping_mall_ai_backend_channel_id FK "nullable"
+  String shopping_mall_ai_backend_seller_id FK "nullable"
+  String code
+  String type
+  String title
+  String description "nullable"
+  Float value
+  Float min_order_amount "nullable"
+  Float max_discount_amount "nullable"
+  String currency "nullable"
+  DateTime expires_at "nullable"
+  Boolean stackable
+  Boolean personal
+  Int issued_quantity "nullable"
+  Int issued_per_user "nullable"
+  Int used_per_user "nullable"
+  Int usage_limit_total "nullable"
+  Int issued_count
+  Int used_count
+  DateTime published_at "nullable"
+  String status
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_coupon_issuances" {
+  String id PK
+  String shopping_mall_ai_backend_coupon_id FK
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  String external_code "nullable"
+  DateTime expires_at "nullable"
   String status
   DateTime issued_at
-  DateTime expires_at
-  DateTime redeemed_at "nullable"
+  DateTime used_at "nullable"
+  DateTime revoked_at "nullable"
+  DateTime created_at
 }
-"aimall_backend_discount_campaigns" {
+"shopping_mall_ai_backend_coupon_usages" {
   String id PK
-  String name
-  String code UK
-  String type
+  String shopping_mall_ai_backend_coupon_issuance_id FK
+  String shopping_mall_ai_backend_customer_id FK
+  String shopping_mall_ai_backend_order_id FK "nullable"
+  DateTime used_at
+  Float amount_discounted
   String status
-  Boolean stackable
-  DateTime start_at
-  DateTime end_at
-  Int max_uses_per_user "nullable"
-  Int priority
-  String description "nullable"
+  DateTime rolledback_at "nullable"
 }
-"aimall_backend_coupon_redemptions" {
+"shopping_mall_ai_backend_coupon_codes" {
   String id PK
-  String coupon_id FK
-  String customer_id FK
-  String discount_campaign_id FK "nullable"
-  DateTime redeemed_at
-  String redemption_status
-  String order_id "nullable"
-  String product_id "nullable"
+  String shopping_mall_ai_backend_coupon_id FK
+  String shopping_mall_ai_backend_coupon_issuance_id FK "nullable"
+  String bulk_code UK
+  String issued_to_email "nullable"
+  String status
+  DateTime created_at
+  DateTime redeemed_at "nullable"
+  DateTime revoked_at "nullable"
 }
-"aimall_backend_coupons" }o--|| "aimall_backend_discount_campaigns" : campaign_coupons
-"aimall_backend_coupon_redemptions" }o--|| "aimall_backend_coupons" : coupon_coupon_redemptions
-"aimall_backend_coupon_redemptions" }o--o| "aimall_backend_discount_campaigns" : campaign_coupon_redemptions
+"shopping_mall_ai_backend_coupon_stacking_rules" {
+  String id PK
+  String shopping_mall_ai_backend_coupon_id FK "nullable"
+  String excluded_coupon_id FK "nullable"
+  String type
+  String applies_to_type "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_coupon_restrictions" {
+  String id PK
+  String shopping_mall_ai_backend_coupon_id FK
+  String shopping_mall_ai_backend_product_id FK "nullable"
+  String shopping_mall_ai_backend_channel_section_id FK "nullable"
+  String shopping_mall_ai_backend_channel_category_id FK "nullable"
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  DateTime start_time "nullable"
+  DateTime end_time "nullable"
+  Int weekday_bitmask "nullable"
+  Boolean is_holiday_restricted "nullable"
+  String reason_code "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_coupon_notifications" {
+  String id PK
+  String shopping_mall_ai_backend_coupon_id FK "nullable"
+  String shopping_mall_ai_backend_coupon_issuance_id FK "nullable"
+  String shopping_mall_ai_backend_coupon_code_id FK "nullable"
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  String notification_type
+  String status
+  Int send_attempts
+  DateTime last_attempted_at "nullable"
+  String result_message "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_coupon_snapshots" {
+  String id PK
+  String shopping_mall_ai_backend_coupon_id FK
+  String shopping_mall_ai_backend_admin_id FK "nullable"
+  String policy_json
+  DateTime created_at
+}
+"shopping_mall_ai_backend_coupon_issuances" }o--|| "shopping_mall_ai_backend_coupons" : coupon
+"shopping_mall_ai_backend_coupon_usages" }o--|| "shopping_mall_ai_backend_coupon_issuances" : couponIssuance
+"shopping_mall_ai_backend_coupon_codes" }o--|| "shopping_mall_ai_backend_coupons" : coupon
+"shopping_mall_ai_backend_coupon_codes" }o--o| "shopping_mall_ai_backend_coupon_issuances" : couponIssuance
+"shopping_mall_ai_backend_coupon_stacking_rules" }o--o| "shopping_mall_ai_backend_coupons" : coupon
+"shopping_mall_ai_backend_coupon_stacking_rules" }o--o| "shopping_mall_ai_backend_coupons" : excludedCoupon
+"shopping_mall_ai_backend_coupon_restrictions" }o--|| "shopping_mall_ai_backend_coupons" : coupon
+"shopping_mall_ai_backend_coupon_notifications" }o--o| "shopping_mall_ai_backend_coupons" : coupon
+"shopping_mall_ai_backend_coupon_notifications" }o--o| "shopping_mall_ai_backend_coupon_issuances" : couponIssuance
+"shopping_mall_ai_backend_coupon_notifications" }o--o| "shopping_mall_ai_backend_coupon_codes" : couponCode
+"shopping_mall_ai_backend_coupon_snapshots" }o--|| "shopping_mall_ai_backend_coupons" : coupon
 ```
 
-### `aimall_backend_coupons`
+### `shopping_mall_ai_backend_coupons`
 
-Coupon entity - This implements the requirements for coupon management and tracking as described in section 4 of the Discount & Loyalty System requirements.
-
-Coupons are digital vouchers that can be issued system-wide or user-specific, usable for eligible orders and products. All instances of coupon issuance, unique code storage, status (issued, redeemed, expired, invalidated), and usage constraints are strictly tracked at this entity. Maintains 3NF compliance by referencing related campaigns or users via IDs, with no redundant storage or pre-computation. For example, the system records a unique row per issued coupon, capturing its single-use or multi-use state for audit and abuse prevention.
-
-Key relationships: References the discount campaign and customer/user (from external actors) as the owner. May link to specific products or categories via foreign keys if necessary.
-Special behaviors: Unique coupon codes, strict status enumeration, and time-based validity are centrally enforced. No aggregate or computed fields, per normalization rules.
-
-Properties as follows:
-
-- `id`: Primary Key. Uniquely identifies the coupon.
-- `discount_campaign_id`: Belonged campaign's [aimall_backend_discount_campaigns.id](#aimall_backend_discount_campaigns). Links coupon to its issuing campaign for rule tracking and analytics.
-- `customer_id`: Belonged customer's [aimall_backend_customers.id](#aimall_backend_customers). Tracks coupon assignment, redemption, and user-level eligibility. References already-existing customer entity in the actors domain.
-- `code`
-  > Coupon code - Implements the requirement for per-coupon identification.
-  >
-  > A unique code assigned to each coupon, which users enter or that are validated automatically in checkout flows. Ensures normalization by storing only the code, not related details. Example: ABCD1234, UNIV2025. Uniqueness enforced at the database with a unique index.
-- `status`
-  > Coupon status - Implements redemption and state-based business logic.
-  >
-  > Business meaning: Whether coupon is 'issued', 'redeemed', 'expired', or 'invalidated'. Ensures normalization: actual event details elsewhere. Example: Only one status value per coupon at any moment. Constraint: Acceptable values ('issued', 'redeemed', 'expired', 'invalidated') set by application logic.
-- `issued_at`: Timestamp coupon was issued. Implements the issuance tracking part of requirements for audit. For example, tracks when the coupon became available. Required; not nullable.
-- `expires_at`
-  > Expiration timestamp - Implements the expiry control from coupon requirements.
-  >
-  > Defines when the coupon is no longer valid. For example, all redemptions after this point are denied. Ensures normalization by placing only atomic expiry data here.
-- `redeemed_at`
-  > Timestamp coupon was redeemed, if applicable - Implements requirement to audit all coupon lifecycle events.
-  >
-  > Example: Null until coupon is redeemed; filled when redeemed for traceability. Nullable as not all coupons will be redeemed.
-
-### `aimall_backend_discount_campaigns`
-
-Discount Campaign entity - Implements discount rule and campaign management requirements described in section 4 of the Discount & Loyalty System requirements.
-
-Discount campaigns group together sets of logic for applying discounts, coupon issuance parameters, stacking rules, and analytic tracking. A normalized (3NF) representation encapsulating start/end dates, rule definitions, stacking, and status but without summary/aggregate data.
-
-For example, a campaign row controls: scope (order, product), stackable limit, usage limits, priority, etc. Campaign can be referenced by many coupons or redemptions but stores no pre-aggregated value.
-
-Key relationships: One-to-many with coupons and redemptions.
-Special behaviors: Unique code and priority enforcement; snapshot references for rule versioning if changed.
+Master list of all coupons, promotions, and discount policies including
+type, value, stacking, applicability, eligibility definitions, and
+meta-configuration. Cross-linked to issuances, codes, stacking,
+restrictions, notifications, and snapshots. Enables regulatory
+compliance, analytics, and personal or bulk issuance.
 
 Properties as follows:
 
-- `id`: Primary Key. Uniquely identifies the discount campaign.
-- `name`
-  > Discount campaign name - Implements business-facing identification of campaigns.
-  >
-  > Clear, human-readable name for management and analytics. 3NF compliance: No description duplication. Example: 'New Year Sale 2025'.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_channel_id`
+  > Scope of coupon for promotions within a specific channel. References
+  > [shopping_mall_ai_backend_channels.id](#shopping_mall_ai_backend_channels).
+- `shopping_mall_ai_backend_seller_id`
+  > Seller that issued the coupon, if applicable. References {@link
+  > shopping_mall_ai_backend_sellers.id}.
 - `code`
-  > Campaign code - Implements unique, system-handled identifier for programmatic logic and analytics.
-  >
-  > Unique string (often uppercase/slug) used for campaign referencing, stacking, and analytics. 3NF: No duplication. Example: 'NEWYEAR2025'. Database uniqueness enforced.
+  > Unique business code for the coupon or promotion campaign. E.g.
+  > SUMMER2024, NEWUSER50.
 - `type`
-  > Campaign type - Implements logic for order/product scope and analytic reporting.
-  >
-  > Business meaning: whether discount is 'order', 'product', or other (application logic enumerates). Maintains normalization: actual logic flows elsewhere. Example value: 'order'.
-- `status`
-  > Campaign status - Enables active/inactive flag and clean campaign lifecycle management.
-  >
-  > Examples: 'active', 'inactive', 'ended', etc. Maintains 3NF by not mixing with actual events.
+  > Coupon type: e.g., 'fixed', 'percentage', 'shipping', 'event', 'welcome',
+  > 'bulk_code', 'personal'. Should be validated in application or codebook.
+- `title`: Title for human-recognition (e.g., '10% Off First Order').
+- `description`: Detailed description for display and audit trails.
+- `value`: Discount amount or percentage depending on type.
+- `min_order_amount`: Minimum eligible order amount, if any, for use validation.
+- `max_discount_amount`: Maximum discount that can be applied, for percentage or capped coupons.
+- `currency`
+  > Currency code if monetary. (e.g., 'KRW','USD'). Null for non-monetary
+  > coupons.
+- `expires_at`: Coupon expiration datetime (absolute or computed per-issuance).
 - `stackable`
-  > Whether campaign can be stacked with others - Implements stacking/combination logic from requirements.
-  >
-  > True when combinable with other discounts, respecting stacking rules at checkout.
-- `start_at`
-  > Campaign start timestamp - Marks campaign activation for eligibility and analytics.
-  >
-  > Defines first moment of campaign eligibility for coupons/discounts. Required; not nullable. For example: '2025-01-01T00:00:00Z'.
-- `end_at`
-  > Campaign end timestamp - Marks campaign deactivation point and eligibility.
-  >
-  > Defines the last valid moment for coupon redemptions/discount application; no events after this point. Ensures correct time-bound logic.
-- `max_uses_per_user`
-  > Maximum number of allowed uses per user - Implements usage limit logic per requirements.
-  >
-  > Integer; 0 or null means unlimited. Normalization: Only the atomic usage parameter, not aggregates. Example: 1 for single-use campaigns, 0 for unlimited. Application logic enforces the rule.
-- `priority`
-  > Priority value - Implements campaign precedence in case of rule conflicts per requirements.
-  >
-  > Higher integer wins precedence; determines stacking/order during application. Normalized as atomic value only.
-- `description`
-  > Long-form description for business or admin guidance - Implements documentation and operational guidance requirements.
-  >
-  > Example: 'Order-level campaign for new users; stackable with product level'. Not used for display to end customers. Nullable for minimal campaigns.
+  > Whether the coupon can stack with others (default: false). Business-level
+  > validation required for eligibility.
+- `personal`
+  > True if only for a specific customer (e.g., birthday, one-off, event,
+  > new-member).
+- `issued_quantity`: Max issue count (e.g., for the entire campaign) or null for unlimited.
+- `issued_per_user`: How many times a single user can be issued this coupon.
+- `used_per_user`: Usage limit per user (null=unlimited).
+- `usage_limit_total`: Total uses allowed for this coupon (null=unlimited).
+- `issued_count`
+  > Total number of coupons actually issued (system-maintained, for
+  > analytics).
+- `used_count`
+  > System-maintained: aggregate number of times this coupon was successfully
+  > used.
+- `published_at`: When coupon is/will be publicly available for claim.
+- `status`
+  > Coupon status (e.g. 'active', 'expired', 'scheduled', 'hidden',
+  > 'restricted'). Validate in application or via codebooks.
+- `created_at`: Creation timestamp.
+- `updated_at`: Last update timestamp.
+- `deleted_at`: Soft-deletion timestamp if the coupon is removed from view.
 
-### `aimall_backend_coupon_redemptions`
+### `shopping_mall_ai_backend_coupon_issuances`
 
-Coupon Redemption entity - Implements detailed redemption/audit requirements in section 4 of Discount & Loyalty System, and supports full traceability and fraud prevention.
-
-Each redemption row captures a single coupon redemption event (including success/failure), strictly separated from the coupon itself for normalization. Data here supports auditing, anti-abuse monitoring, and rollback processes.
-
-For example, a redemption is recorded for each attempt (success/failure), including who attempted, what order/product was targeted, and timestamp of the attempt. Snapshots of this table support fraud trend analytics.
-
-Key relationships: Coupon being redeemed, campaign involved (if applicable), customer performing redemption (actors).
-Special behaviors: No aggregate fields; atomic, one-event-per-row, supporting strict normalization.
+Instance of coupon issued to a customer or group. Tracks the allocation,
+recipient, status, and issuance time. Linked to coupons and customers,
+and references the underlying policy for regulatory and eligibility
+tracking.
 
 Properties as follows:
 
-- `id`: Primary Key. Uniquely identifies each coupon redemption event.
-- `coupon_id`
-  > Redeemed coupon's [aimall_backend_coupons.id](#aimall_backend_coupons).
-  >
-  > Defines which coupon was redeemed, ensuring referential integrity and enabling full redemption tracking.
-- `customer_id`
-  > Customer who performed redemption: references [aimall_backend_customers.id](#aimall_backend_customers) in actors.
-  >
-  > Enables audit and anti-abuse analytics, linking redemptions to external users.
-- `discount_campaign_id`
-  > Referenced campaign for reporting context: links to [aimall_backend_discount_campaigns.id](#aimall_backend_discount_campaigns).
-  >
-  > Supports cases where redemption logic is context-sensitive to campaign rules.
-- `redeemed_at`
-  > Timestamp that redemption was attempted.
-  >
-  > Supports audit and anti-fraud logics; expected to be used in analytic materialized views. Required; not nullable.
-- `redemption_status`
-  > Status of redemption attempt (success, failed, invalid, etc).
-  >
-  > Implements requirement to record all outcomes. Normalized by putting only status text, not aggregation. Application logic enumerates allowed values.
-- `order_id`
-  > Order against which coupon was redeemed.
-  >
-  > Use case: anti-fraud, analytic tracking, rollback. Atomic data, normalization maintained. Can be null if redemption not tied to an order.
-- `product_id`
-  > Product against which coupon was redeemed.
-  >
-  > Used in single-product redemption scenarios. Nullable to allow broad campaign use; normalization kept by not mirroring product data here.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coupon_id`
+  > Coupon policy associated with this issuance. {@link
+  > shopping_mall_ai_backend_coupons.id}.
+- `shopping_mall_ai_backend_customer_id`
+  > Customer recipient issued this coupon. {@link
+  > shopping_mall_ai_backend_customers.id}. Required if personal coupon.
+- `external_code`
+  > Redemption/external code assigned for this issuance (e.g. for affiliate,
+  > external campaigns).
+- `expires_at`
+  > Expiration for issued coupon (overrides policy-specific expiry, e.g.,
+  > per-user duration).
+- `status`
+  > Status per issuance ('issued','used','revoked','expired').
+  > Application-validated or codebook-based.
+- `issued_at`: Issuance timestamp (when delivered/given to user).
+- `used_at`: When coupon was actually redeemed (if used).
+- `revoked_at`: When coupon was revoked (user withdrawal or policy violation).
+- `created_at`: Creation timestamp.
+
+### `shopping_mall_ai_backend_coupon_usages`
+
+Coupon redemption log. Tracks each attempt or successful use of a coupon
+issuance (per customer, per order, per event). Linked to the issuance,
+the redeemed customer, and order. Allows auditing of coupon consumption
+and fraud tracking.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coupon_issuance_id`
+  > References the coupon issuance being used. {@link
+  > shopping_mall_ai_backend_coupon_issuances.id}.
+- `shopping_mall_ai_backend_customer_id`
+  > Customer using coupon. Redundant to coupon_issuance.customer by history
+  > (audit reliability). [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers) .
+- `shopping_mall_ai_backend_order_id`
+  > Order where coupon was used (for cross-reference/audit). {@link
+  > shopping_mall_ai_backend_orders.id}.
+- `used_at`: When this usage occurred (actual redemption).
+- `amount_discounted`
+  > Actual discount value given by this coupon on this usage (for refund,
+  > analytics).
+- `status`
+  > Usage status, e.g. 'success','failed','rolled_back'. Application-enforced
+  > for audit trail.
+- `rolledback_at`
+  > If usage was later revoked or refunded, time here indicates when event
+  > occurred (e.g., if refund or invalid).
+
+### `shopping_mall_ai_backend_coupon_codes`
+
+Table holding bulk coupon codes for campaigns (e.g., public events,
+external coupons). Maps each code to coupon policy and its status in
+issuance or redemption. Prevents code collisions, duplicate use, and
+supports external integrations.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coupon_id`: Coupon this code belongs to. [shopping_mall_ai_backend_coupons.id](#shopping_mall_ai_backend_coupons).
+- `shopping_mall_ai_backend_coupon_issuance_id`
+  > If issued as an individual allocation, link to the issuance. Useful for
+  > personalized or claimed codes. {@link
+  > shopping_mall_ai_backend_coupon_issuances.id}.
+- `bulk_code`
+  > Bulk/published coupon code. E.g., for codes handed out at event, on a
+  > flyer.
+- `issued_to_email`
+  > Optional: contact/email assigned for code claim (for
+  > invite/referral/event tracking).
+- `status`
+  > Status: 'available','issued','redeemed','invalidated','revoked'.
+  > Business-level enforcement.
+- `created_at`: Creation timestamp (code generation).
+- `redeemed_at`: When code was actually redeemed (if applicable).
+- `revoked_at`: If code invalidated/revoked, store timestamp.
+
+### `shopping_mall_ai_backend_coupon_stacking_rules`
+
+Defines allowed/disallowed stacking of coupons and types, both in general
+and per coupon campaign. Explicitly structures business-restricted
+stackability (e.g., 'A cannot stack with B', 'fixed+percentage allowed',
+'only 1 coupon per order'). Used in policy validation and at redemption.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coupon_id`
+  > Coupon for which this stacking rule applies. {@link
+  > shopping_mall_ai_backend_coupons.id}.
+- `excluded_coupon_id`
+  > Specific coupon or type (if any) that this coupon cannot stack with.
+  > Nullable for type/policy-wise rules. {@link
+  > shopping_mall_ai_backend_coupons.id}.
+- `type`
+  > Rule type: 'allow', 'deny', or 'override'. Business logic enforces actual
+  > stacking. Use codebook in application if possible.
+- `applies_to_type`
+  > Target coupon type/category this rule applies to (e.g., all 'fixed',
+  > 'shipping', etc.). Null if only per-coupon.
+- `created_at`: Creation timestamp of this stacking rule.
+
+### `shopping_mall_ai_backend_coupon_restrictions`
+
+Per-coupon restriction definitions. Defines not-allowed conditions,
+periods, channels, users, sections, categories, products. Supports
+fine-grained business enforcement (e.g., 'not valid with product X', 'not
+for user group Y', 'blocked on weekends', etc.).
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coupon_id`: Coupon to restrict. [shopping_mall_ai_backend_coupons.id](#shopping_mall_ai_backend_coupons).
+- `shopping_mall_ai_backend_product_id`
+  > Product this restriction applies to (if any, else null means
+  > general/global). [shopping_mall_ai_backend_products.id](#shopping_mall_ai_backend_products).
+- `shopping_mall_ai_backend_channel_section_id`
+  > Section limitation (if any). {@link
+  > shopping_mall_ai_backend_channel_sections.id}.
+- `shopping_mall_ai_backend_channel_category_id`
+  > Category limitation (if any). {@link
+  > shopping_mall_ai_backend_channel_categories.id}.
+- `shopping_mall_ai_backend_customer_id`
+  > User-level restriction (blacklist, group-exclude, business-group, etc.)
+  > [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `start_time`: Restriction start (blocked during this time). Null for always-blocked.
+- `end_time`: Restriction end (blocked until this time). Null for always-blocked.
+- `weekday_bitmask`
+  > Bitmask for restrict on specific days of the week (application logic
+  > required).
+- `is_holiday_restricted`: Whether restriction also applies during holidays.
+- `reason_code`: Code/reason for restriction (audit log, application validates).
+- `created_at`: Created at.
+
+### `shopping_mall_ai_backend_coupon_notifications`
+
+Per-coupon, code, or issuance notification log/tracking for required or
+business-driven user notifications. Used for compliance, auditing, and
+evidence. Includes type, status, send time, result, error messages. Can
+log push, email, or SMS notifications.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coupon_id`
+  > Coupon policy to which the notification relates. {@link
+  > shopping_mall_ai_backend_coupons.id}.
+- `shopping_mall_ai_backend_coupon_issuance_id`
+  > Lower specificity: specific issuance for which notification event
+  > occurred (e.g., notification of redemption/expiry). {@link
+  > shopping_mall_ai_backend_coupon_issuances.id}.
+- `shopping_mall_ai_backend_coupon_code_id`
+  > Notification relates to a particular code within a campaign. {@link
+  > shopping_mall_ai_backend_coupon_codes.id}.
+- `shopping_mall_ai_backend_customer_id`
+  > Customer target of notification. {@link
+  > shopping_mall_ai_backend_customers.id}.
+- `notification_type`
+  > Type: e.g.,
+  > 'issuance','expiry','reminder','redemption','admin','campaign','error'.
+- `status`: Delivery status: 'pending','sent','failed','acknowledged'.
+- `send_attempts`: Number of prior attempts.
+- `last_attempted_at`: When last send was attempted (if any).
+- `result_message`: Response/result/error info.
+- `created_at`: Created at.
+
+### `shopping_mall_ai_backend_coupon_snapshots`
+
+Immutable snapshots capturing full coupon policy state and related key
+attributes for audit and historical trace. Created whenever coupon is
+created or policy/rules are changed. Enables evidence for compliance and
+legal defense.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coupon_id`
+  > Original coupon this snapshot records. {@link
+  > shopping_mall_ai_backend_coupons.id}.
+- `shopping_mall_ai_backend_admin_id`
+  > Admin who created/modified the policy and triggered the snapshot. {@link
+  > shopping_mall_ai_backend_admins.id}.
+- `policy_json`
+  > Serialized full snapshot of coupon policy and relations—must include all
+  > business attributes and major rules for evidence. JSON for maximum
+  > historical fidelity.
+- `created_at`: Snapshot creation time.
 
 ## Coins
 
 ```mermaid
 erDiagram
-"aimall_backend_loyalty_transactions" {
+"shopping_mall_ai_backend_deposits" {
   String id PK
-  String customer_id FK
-  String order_id FK "nullable"
-  String coupon_id FK "nullable"
+  String shopping_mall_ai_backend_customer_id FK,UK "nullable"
+  String shopping_mall_ai_backend_seller_id FK,UK "nullable"
+  Float total_accrued
+  Float usable_balance
+  Float expired_balance
+  Float on_hold_balance
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_deposit_transactions" {
+  String id PK
+  String shopping_mall_ai_backend_deposit_id FK
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  String shopping_mall_ai_backend_seller_id FK "nullable"
+  String change_type
   Float amount
-  String type
+  String transaction_reference "nullable"
+  Float balance_before
+  Float balance_after
+  String reason_code "nullable"
   String description "nullable"
   DateTime created_at
-  DateTime expired_at "nullable"
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_abuse_incidents" {
+"shopping_mall_ai_backend_mileages" {
   String id PK
-  String customer_id FK "nullable"
-  String order_id FK "nullable"
-  String coupon_id FK "nullable"
-  String discount_campaign_id FK "nullable"
-  String type
-  String details "nullable"
-  DateTime detected_at
-  Boolean resolved
+  String shopping_mall_ai_backend_customer_id FK,UK "nullable"
+  String shopping_mall_ai_backend_seller_id FK,UK "nullable"
+  Float total_accrued
+  Float usable_mileage
+  Float expired_mileage
+  Float on_hold_mileage
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
 }
+"shopping_mall_ai_backend_mileage_transactions" {
+  String id PK
+  String shopping_mall_ai_backend_mileage_id FK
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  String shopping_mall_ai_backend_seller_id FK "nullable"
+  String change_type
+  Float amount
+  String transaction_reference "nullable"
+  Float mileage_before
+  Float mileage_after
+  String reason_code "nullable"
+  String description "nullable"
+  DateTime created_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_coins" {
+  String id PK
+  String shopping_mall_ai_backend_customer_id FK,UK "nullable"
+  String shopping_mall_ai_backend_seller_id FK,UK "nullable"
+  Float total_accrued
+  Float usable_coin
+  Float expired_coin
+  Float on_hold_coin
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_coin_transactions" {
+  String id PK
+  String shopping_mall_ai_backend_coin_id FK
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  String shopping_mall_ai_backend_seller_id FK "nullable"
+  String change_type
+  Float amount
+  String transaction_reference "nullable"
+  Float coin_before
+  Float coin_after
+  String reason_code "nullable"
+  String description "nullable"
+  DateTime created_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_financial_incidents" {
+  String id PK
+  String shopping_mall_ai_backend_deposit_id FK "nullable"
+  String shopping_mall_ai_backend_mileage_id FK "nullable"
+  String shopping_mall_ai_backend_coin_id FK "nullable"
+  String shopping_mall_ai_backend_customer_id FK "nullable"
+  String shopping_mall_ai_backend_seller_id FK "nullable"
+  String incident_type
+  String status
+  String details
+  String external_reference "nullable"
+  DateTime created_at
+  DateTime resolved_at "nullable"
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_deposit_transactions" }o--|| "shopping_mall_ai_backend_deposits" : deposit
+"shopping_mall_ai_backend_mileage_transactions" }o--|| "shopping_mall_ai_backend_mileages" : mileage
+"shopping_mall_ai_backend_coin_transactions" }o--|| "shopping_mall_ai_backend_coins" : coin
+"shopping_mall_ai_backend_financial_incidents" }o--o| "shopping_mall_ai_backend_deposits" : deposit
+"shopping_mall_ai_backend_financial_incidents" }o--o| "shopping_mall_ai_backend_mileages" : mileage
+"shopping_mall_ai_backend_financial_incidents" }o--o| "shopping_mall_ai_backend_coins" : coin
 ```
 
-### `aimall_backend_loyalty_transactions`
+### `shopping_mall_ai_backend_deposits`
 
-Loyalty Transaction Entity - Implements the loyalty point/mileage tracking and auditing requirements from the Discount & Loyalty System document. Each record is a normalized atomic transaction (accrual, redemption, expiration, or reversal), ensuring 3NF by not holding computed balances. Strong auditability for compliance and fraud prevention. References Customers (required), Orders (optional), Coupons (optional). Example: accrual for order completion, burning for redemption, reversal for refund.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique identifier for each loyalty transaction record.
-- `customer_id`: Associated customer's [aimall_backend_customers.id](#aimall_backend_customers). Links this transaction to the user who earned or used mileage/points.
-- `order_id`: Associated order's [aimall_backend_orders.id](#aimall_backend_orders); set if triggered by an order (e.g. purchase, refund, etc).
-- `coupon_id`: Associated coupon's [aimall_backend_coupons.id](#aimall_backend_coupons), if transaction was triggered by coupon redemption or benefit.
-- `amount`: Net change in user's mileage or loyalty points. Positive for accrual/awards, negative for redemption/expiration. Atomic value, not a running balance.
-- `type`: Type of this transaction e.g. 'accrual', 'redemption', 'expiration', 'refund_reversal'. Business event code for this record.
-- `description`: Operator/user-facing context reason (e.g. 'Order 0001 redemption', 'Sign-up bonus', 'Points expired', etc). May be null for system-generated entries.
-- `created_at`: Timestamp of transaction creation. Used for audit, expiry, ordering, and analytics.
-- `expired_at`: If this transaction caused point expiration, the timestamp of expiry. Nullable - not all transactions expire points.
-
-### `aimall_backend_abuse_incidents`
-
-Abuse Incident Entity - Each record is a single system- or admin-detected abuse/fraud event related to loyalty/discount/coupon/points usage. Normalized (3NF): only atomic events here. Examples: self-referral, rapid stacking, velocity anomalies. Used for AI/analytics, compliance, and admin investigation. References: customer, order, coupon, discount campaign when applicable.
+Represents the ledger of cash-like deposits for both customers and
+sellers. Tracks available balances, total accrued, and current state
+(e.g., usable, on hold, expired) for each account holder. Connects to
+detailed transaction and adjustment logs. Provides a core basis for
+refundable value holding and operational compliance. Related to {@link
+shopping_mall_ai_backend_deposit_transactions} and customer/seller
+tables.
 
 Properties as follows:
 
-- `id`: Primary Key. Unique identifier for this abuse incident record.
-- `customer_id`: Suspected or affected customer's [aimall_backend_customers.id](#aimall_backend_customers). Nullable if systemic (not user-specific).
-- `order_id`: Associated order's [aimall_backend_orders.id](#aimall_backend_orders). Nullable if not order-based.
-- `coupon_id`: Associated coupon's [aimall_backend_coupons.id](#aimall_backend_coupons). Nullable if incident not coupon-based.
-- `discount_campaign_id`: Related campaign's [aimall_backend_discount_campaigns.id](#aimall_backend_discount_campaigns). Nullable if not campaign-linked.
-- `type`: Nature/type of abuse e.g. 'self_referral', 'coupon_stacking', 'velocity_anomaly', 'systemwide_policy'. Root cause/event code.
-- `details`: Further context/notes (e.g. IDs, context, admin note). Nullable if covered by other fields or not applicable.
-- `detected_at`: Timestamp when system or admin detected (flagged) this event.
-- `resolved`: Incident status: true if admin/AI confirmed and closed investigation, false if pending.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_customer_id`
+  > Belonged customer's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers). This
+  > field is used for customer deposit ledgers.
+- `shopping_mall_ai_backend_seller_id`
+  > Belonged seller's [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers). This field
+  > is used for seller deposit ledgers.
+- `total_accrued`
+  > Cumulative cash (or equivalent) amount ever credited, including
+  > expired/withdrawn funds.
+- `usable_balance`: Current deposit balance available for use or withdrawal.
+- `expired_balance`: Deposit value expired or lost and not available to user.
+- `on_hold_balance`
+  > Balance temporarily frozen due to withdrawal, incident, or review; not
+  > available for use.
+- `created_at`: Ledger creation timestamp for audit and evidence.
+- `updated_at`: Last ledger update timestamp for audit and evidence.
+- `deleted_at`: Soft deletion timestamp; null if active.
+
+### `shopping_mall_ai_backend_deposit_transactions`
+
+Detailed log of all deposit changes including accrual, consumption,
+withdrawal, expiration, manual adjustments, and incident-related events.
+Ensures full auditability, enabling ledger reconciliation and business
+compliance. Each transaction references the linked ledger and
+user/seller, and keeps event context such as transaction type, reason,
+and audit trace.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_deposit_id`: Reference to deposit ledger [shopping_mall_ai_backend_deposits.id](#shopping_mall_ai_backend_deposits).
+- `shopping_mall_ai_backend_customer_id`: Linked customer [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `shopping_mall_ai_backend_seller_id`: Linked seller [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers).
+- `change_type`
+  > Nature of transaction (e.g., accrual, usage, withdrawal, expire,
+  > reversal, manual_adjustment, incident_lock, incident_unlock, etc.).
+- `amount`
+  > Amount changed in this transaction (positive for accrual, negative for
+  > usage/expire).
+- `transaction_reference`
+  > External/internal reference code for audit/correlation (e.g., withdrawal
+  > req, order id, etc.).
+- `balance_before`: Ledger balance immediately before this transaction.
+- `balance_after`: Ledger balance after this transaction is applied.
+- `reason_code`: Business reason or outcome code for analytics/compliance.
+- `description`
+  > Textual explanation/context for this transaction, for business review or
+  > compliance.
+- `created_at`: Transaction creation timestamp.
+- `deleted_at`: Soft deletion timestamp; null if active.
+
+### `shopping_mall_ai_backend_mileages`
+
+Mileage (points/reward) ledger for customers and sellers. Tracks overall
+accruals, usable and expired balances, segmented by account holder.
+Enables membership, promotional, and event point management.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_customer_id`
+  > Customer who owns this mileage ledger. {@link
+  > shopping_mall_ai_backend_customers.id}.
+- `shopping_mall_ai_backend_seller_id`
+  > Seller who owns this mileage ledger. {@link
+  > shopping_mall_ai_backend_sellers.id}.
+- `total_accrued`: Cumulative mileage/point credits (all-time) including expired/lost.
+- `usable_mileage`: Current mileage balance available for use.
+- `expired_mileage`: Mileage value expired or deleted and not available to user.
+- `on_hold_mileage`: Mileage temporarily frozen due to incident, claim, fraud, etc.
+- `created_at`: Ledger creation time for evidence/audit.
+- `updated_at`: Last ledger update time for evidence/audit.
+- `deleted_at`: Soft deletion timestamp; null if active.
+
+### `shopping_mall_ai_backend_mileage_transactions`
+
+Audit log of all mileage (point) ledger modifications, including
+accruals, usage, expirations, manual/admin adjustments, and
+incident-driven events. Each record preserves ledger state change and
+rationale context.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_mileage_id`: Associated mileage ledger [shopping_mall_ai_backend_mileages.id](#shopping_mall_ai_backend_mileages).
+- `shopping_mall_ai_backend_customer_id`
+  > Customer associated to this transaction. {@link
+  > shopping_mall_ai_backend_customers.id}.
+- `shopping_mall_ai_backend_seller_id`
+  > Seller associated to this transaction. {@link
+  > shopping_mall_ai_backend_sellers.id}.
+- `change_type`
+  > Action performed (e.g., accrual, use, expire, reversal, admin_adjust,
+  > incident_freeze, incident_release, donation, etc.).
+- `amount`
+  > Value changed in this transaction (positive for accrual, negative for
+  > usage/loss/expire).
+- `transaction_reference`: Internal/external reference (order, refund, gift, campaign, etc.).
+- `mileage_before`: Ledger balance before transaction.
+- `mileage_after`: Ledger balance after transaction.
+- `reason_code`: Business/process reason for audit analytics.
+- `description`: Narrative for this specific transaction (for compliance or analytics).
+- `created_at`: Transaction creation timestamp.
+- `deleted_at`: Soft deletion timestamp, null if active.
+
+### `shopping_mall_ai_backend_coins`
+
+Digital coin ledger for both users and sellers. Tracks coin accrual,
+usage, on-hold coins, and expired/lost events. Often used for
+promotional, wallet, or special event non-fiat value operations.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_customer_id`: Owner customer [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `shopping_mall_ai_backend_seller_id`: Owner seller [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers).
+- `total_accrued`: Sum of all coins ever granted/accrued (regardless of use or expiration).
+- `usable_coin`: Currently available coin balance for the owner.
+- `expired_coin`: Value of coins expired/unavailable to the user.
+- `on_hold_coin`
+  > Coin value temporarily unavailable due to withdrawal, dispute, or
+  > compliance.
+- `created_at`: Ledger creation time for compliance/evidence.
+- `updated_at`: Last update timestamp for compliance/evidence.
+- `deleted_at`: Soft deletion timestamp; null if active.
+
+### `shopping_mall_ai_backend_coin_transactions`
+
+Comprehensive ledger audit entries for all coin changes, including
+accrual, expenditure, manual/admin adjustment, incident freeze/unfreeze,
+event distributions, and expiration. Tracks before/after coin values and
+process context for evidence.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_coin_id`: Target coin ledger [shopping_mall_ai_backend_coins.id](#shopping_mall_ai_backend_coins).
+- `shopping_mall_ai_backend_customer_id`
+  > Associated customer, nullable.{@link
+  > shopping_mall_ai_backend_customers.id}.
+- `shopping_mall_ai_backend_seller_id`: Associated seller, nullable.[shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers).
+- `change_type`
+  > Event for this transaction (e.g., accrue, use, expire, reversal,
+  > admin_adjust, incident_hold, incident_release, etc.).
+- `amount`: Value changed in this action (positive or negative by context).
+- `transaction_reference`: Reference to related order, event, gift, etc.
+- `coin_before`: Coin balance before this transaction.
+- `coin_after`: Coin balance after transaction.
+- `reason_code`: Process/business code for this event type.
+- `description`: Business explanation for evidence/analytics.
+- `created_at`: Transaction creation timestamp.
+- `deleted_at`: Soft deletion timestamp, null if active.
+
+### `shopping_mall_ai_backend_financial_incidents`
+
+Incident, anomaly, or audit/investigatory event log related to deposit,
+mileage, or coin ledgers. Captures all cases of suspected fraud,
+unauthorized usage, reversals, compliance freezes, or business-side
+ledger investigation. Ensures audit trail for financial events with
+business or legal impact.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_deposit_id`
+  > Related deposit ledger involved in this incident. Nullable if not
+  > deposit-linked. [shopping_mall_ai_backend_deposits.id](#shopping_mall_ai_backend_deposits).
+- `shopping_mall_ai_backend_mileage_id`
+  > Related mileage ledger involved in this incident. Nullable if not
+  > mileage-linked. [shopping_mall_ai_backend_mileages.id](#shopping_mall_ai_backend_mileages).
+- `shopping_mall_ai_backend_coin_id`
+  > Related coin ledger involved in this incident. Nullable if not
+  > coin-linked. [shopping_mall_ai_backend_coins.id](#shopping_mall_ai_backend_coins).
+- `shopping_mall_ai_backend_customer_id`
+  > Associated customer if relevant. Nullable. {@link
+  > shopping_mall_ai_backend_customers.id}.
+- `shopping_mall_ai_backend_seller_id`
+  > Associated seller if relevant. Nullable. {@link
+  > shopping_mall_ai_backend_sellers.id}.
+- `incident_type`
+  > Type/category of incident (e.g., fraud, reversal, compliance_audit,
+  > withdrawal_dispute, manual_freeze, system_error, anomaly_detection,
+  > etc.).
+- `status`: Current status (open, investigating, closed, resolved, reversed, etc.).
+- `details`
+  > Narrative business/context details of this incident. For compliance and
+  > root cause review.
+- `external_reference`
+  > Correlator/reference to external systems, event logs, or legal/insurance
+  > process.
+- `created_at`: Incident started/recorded timestamp.
+- `resolved_at`: Resolution time if closed; null if still open/ongoing.
+- `deleted_at`: Soft deletion timestamp; null if still valid.
 
 ## Inquiries
 
 ```mermaid
 erDiagram
-"aimall_backend_support_tickets" {
+"shopping_mall_ai_backend_inquiries" {
   String id PK
-  String requester_id FK
-  String assignee_admin_id FK "nullable"
-  String subject
+  String customer_id FK "nullable"
+  String seller_id FK "nullable"
+  String product_id FK "nullable"
+  String order_id FK "nullable"
+  String title
   String body
+  Boolean private
   String status
-  String priority
-  String category
+  DateTime closed_at "nullable"
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_faqs" {
+"shopping_mall_ai_backend_inquiry_replies" {
   String id PK
-  String question
-  String answer
-  String category
-  Int sort_order
-  Boolean visible
+  String inquiry_id FK
+  String parent_id FK "nullable"
+  String customer_id FK "nullable"
+  String seller_id FK "nullable"
+  String body
+  Boolean private
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
+"shopping_mall_ai_backend_inquiry_snapshots" {
+  String id PK
+  String inquiry_id FK
+  String reply_id FK "nullable"
+  String title "nullable"
+  String body "nullable"
+  Boolean private "nullable"
+  String status "nullable"
+  DateTime closed_at "nullable"
+  String author_type "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_inquiry_abuse_reports" {
+  String id PK
+  String reporter_customer_id FK
+  String inquiry_id FK "nullable"
+  String reply_id FK "nullable"
+  String admin_id FK "nullable"
+  String reason
+  String status
+  DateTime closed_at "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_inquiry_moderation_events" {
+  String id PK
+  String inquiry_id FK "nullable"
+  String reply_id FK "nullable"
+  String abuse_report_id FK "nullable"
+  String admin_id FK
+  String event_type
+  String note "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_inquiry_faq_suggestions" {
+  String id PK
+  String inquiry_id FK
+  String admin_id FK "nullable"
+  String faq_question
+  String faq_answer
+  String suggestion_type
+  String status
+  String note "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_inquiry_replies" }o--|| "shopping_mall_ai_backend_inquiries" : inquiry
+"shopping_mall_ai_backend_inquiry_replies" }o--o| "shopping_mall_ai_backend_inquiry_replies" : parent
+"shopping_mall_ai_backend_inquiry_snapshots" }o--|| "shopping_mall_ai_backend_inquiries" : inquiry
+"shopping_mall_ai_backend_inquiry_snapshots" }o--o| "shopping_mall_ai_backend_inquiry_replies" : reply
+"shopping_mall_ai_backend_inquiry_abuse_reports" }o--o| "shopping_mall_ai_backend_inquiries" : inquiry
+"shopping_mall_ai_backend_inquiry_abuse_reports" }o--o| "shopping_mall_ai_backend_inquiry_replies" : reply
+"shopping_mall_ai_backend_inquiry_moderation_events" }o--o| "shopping_mall_ai_backend_inquiries" : inquiry
+"shopping_mall_ai_backend_inquiry_moderation_events" }o--o| "shopping_mall_ai_backend_inquiry_replies" : reply
+"shopping_mall_ai_backend_inquiry_moderation_events" }o--o| "shopping_mall_ai_backend_inquiry_abuse_reports" : abuseReport
+"shopping_mall_ai_backend_inquiry_faq_suggestions" }o--|| "shopping_mall_ai_backend_inquiries" : inquiry
 ```
 
-### `aimall_backend_support_tickets`
+### `shopping_mall_ai_backend_inquiries`
 
-Support Ticket Entity - This implements the service support and inquiry feature requirements from the backend requirements analysis, particularly relating to customer service workflows and support escalation (see EARS statements about ticketing, AI escalation, and compliance logging). 
-This table models customer-initiated service requests—used for tracking issues, questions, and operational problems faced by customers, sellers, or administrators. It enables robust, auditable support workflows and links to related users by foreign keys (referencing pre-existing user tables). Maintains full 3NF normalization: All attribute data is atomic, and references are by foreign keys only. No pre-calculated or summary fields are present. Key relationships: links (via foreign keys) to users (customers, sellers, admins) in already-existing tables; referenced by audit/logging modules in other schemas. Special behaviors: status transitions (open, assigned, resolved, closed); fully audit-trailed via timestamp fields; supports escalation, categorization, and assignment. Sensitive information must be subject to compliance logging.
-
-Properties as follows:
-
-- `id`: Primary Key. Uniquely identifies each support ticket.
-- `requester_id`: User's [aimall_backend_customers.id](#aimall_backend_customers), [aimall_backend_sellers.id](#aimall_backend_sellers), or [aimall_backend_administrators.id](#aimall_backend_administrators) who created the support ticket. Enables reference to the actor initiating the ticket for compliance and support workflow.
-- `assignee_admin_id`: Assigned admin's [aimall_backend_administrators.id](#aimall_backend_administrators), if a ticket has been assigned to a staff member for handling. Tracks responsibility delegation in support workflow.
-- `subject`: Support ticket subject line - Implements the summary/short title requirement. Business meaning: customer-provided or system-generated one-line description for ticket triage (e.g., 'Order not received', 'Billing error'). Atomic, required for efficient ticket queue management.
-- `body`: Support ticket full request detail - Implements the main description field. This is the message or inquiry provided by the user, containing all specifics of the case. Must be stored as a string (may contain markup/HTML). Strictly atomic and normalized.
-- `status`: Ticket status - Implements the workflow state for tracking open, pending, resolved, or closed support requests. Suggested enum values: 'open', 'pending', 'resolved', 'closed', but allows string for forward-compatibility with workflow engines. Always atomic and only represents the current state, not calculated. Used for ticket queue filtering.
-- `priority`: Priority flag (e.g., 'low','normal','high','urgent') - Implements support triage requirement. Indicates urgency for staff response and routing. Not calculated; strictly atomic and can be updated per ticket system business rules.
-- `category`: Ticket category - Implements requirement for classification/tagging (e.g., 'payment', 'delivery', 'product', 'technical', 'account') for reporting, agent assignment, and workflow. Always atomic and reflects user/system selection upon ticket submission.
-- `created_at`: Ticket creation timestamp - Implements requirement for audit trails, SLAs, and tracking. Indicates when the ticket was submitted. Not nullable per compliance requirements.
-- `updated_at`: Ticket last update timestamp - Ensures audit log compliance and enables support workflow monitoring (e.g., for SLA violation, escalation checks). Updated on every atomic change to the ticket.
-
-### `aimall_backend_faqs`
-
-FAQ Entity - This implements the knowledge base/self-service feature from the requirements, enabling listing and maintaining frequently asked questions to improve user self-resolution and reduce support load (see EARS requirements for knowledge management and ticket deflection). Models a single FAQ record (question-answer pair), fully atomic and referenceable in a normalized fashion. Allows categorization and keyword search. There is no denormalization or calculated data. Example usage: customer accesses FAQ for 'Payment not processed', gets guided advice, reducing incoming support tickets. Key relationships: can be referenced from support tickets (for self-service deflection statistics), links only via reference IDs as required by normalized modeling guidelines. Special behaviors: supports category-tag filtering, allows soft update of content/visibility for compliance (e.g. hiding outdated answers).
+Represents inquiries raised by customers or sellers about products,
+orders, deliveries, or general topics. Supports privacy level
+(public/private), ownership by customer or seller, ties to relevant
+product/order, visibility controls, and workflow status. Serves as the
+main entity for buyer-seller-admin engagement and evidence in dispute
+resolution. Snapshots and moderation logs reference this entity.
 
 Properties as follows:
 
-- `id`: Primary Key. Uniquely identifies each FAQ entry.
-- `question`: FAQ question - Implements requirement for FAQ knowledge base questions. Short, atomic, and searchable (used as main text for user lookup).
-- `answer`: FAQ answer - Implements knowledge base content for most common inquiries. May contain rich/HTML content for effective guidance. Atomic, not calculated, and strictly normalized.
-- `category`: FAQ category - Implements requirement for classification/tagging, enabling search and filtering over large FAQ databases. Examples: 'order', 'payment', 'product', 'account'. Strictly atomic and normalized.
-- `sort_order`: Manual sort order for display - Implements the need for prioritized/ordered FAQ listing (e.g., order by popularity, admin-set priority). Atomic integer, not calculated.
-- `visible`: Visibility flag - Implements soft hide/archive policy for outdated or admin hidden FAQs. If false, FAQ is hidden from customer view but still exists for audit/compliance records. Fully atomic, normalized.
-- `created_at`: FAQ creation timestamp - For audit log compliance and historical analysis. Indicates when FAQ entry was created/published. Always required; never nullable per compliance tracing.
-- `updated_at`: FAQ last updated timestamp - Maintains revision history compliance; updated on any change to the question or answer. Atomic, not calculated, strictly normalized.
+- `id`: Primary Key.
+- `customer_id`
+  > Inquiry owner's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers). May be
+  > null for non-customer inquiries.
+- `seller_id`
+  > Inquiry owner's [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers). Null for
+  > customer inquiries.
+- `product_id`
+  > Product related to the inquiry. {@link
+  > shopping_mall_ai_backend_products.id}. Nullable for non-product
+  > inquiries.
+- `order_id`
+  > Order related to the inquiry. [shopping_mall_ai_backend_orders.id](#shopping_mall_ai_backend_orders).
+  > Nullable for inquiries not about specific order.
+- `title`: Inquiry subject or summary line.
+- `body`: Full inquiry content, typically user question or statement.
+- `private`
+  > Whether the inquiry is private (visible only to owner and target) or
+  > public.
+- `status`
+  > Inquiry workflow status (e.g., open, answered, closed,
+  > pending_moderation, rejected).
+- `closed_at`: Timestamp when inquiry was closed or resolved.
+- `created_at`: Timestamp this inquiry was authored.
+- `updated_at`: Timestamp of last update to inquiry.
+- `deleted_at`: Timestamp when inquiry was marked deleted (soft delete), nullable.
 
-## Analytics
+### `shopping_mall_ai_backend_inquiry_replies`
+
+Represents threaded replies (answers, follow-ups, clarifications) to
+inquiries. Supports nested structure through parent_id self-reference,
+attribution to customer or seller, visibility (private/public), and
+evidence trails. Requires independent search and management across all
+inquiries.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `inquiry_id`: Replied inquiry's [shopping_mall_ai_backend_inquiries.id](#shopping_mall_ai_backend_inquiries).
+- `parent_id`
+  > Parent reply's [shopping_mall_ai_backend_inquiry_replies.id](#shopping_mall_ai_backend_inquiry_replies) for
+  > nested thread replies. Null for top-level.
+- `customer_id`
+  > Reply author's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers). May be null
+  > for seller replies.
+- `seller_id`
+  > Reply author's [shopping_mall_ai_backend_sellers.id](#shopping_mall_ai_backend_sellers). Null for
+  > customer replies.
+- `body`: Reply content.
+- `private`
+  > Whether the reply is private (visible only to owner and counterpart) or
+  > public.
+- `created_at`: Timestamp when reply was created.
+- `updated_at`: Timestamp of last update to reply.
+- `deleted_at`: Timestamp if reply was soft deleted.
+
+### `shopping_mall_ai_backend_inquiry_snapshots`
+
+Captures immutable historical copies of inquiries and their replies for
+evidence, audit, and compliance. Each record represents a past state,
+generated on create, update, delete, or status change, and linked to the
+original entity. Crucial for dispute resolution and regulatory
+requirements.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `inquiry_id`: Snapshot target inquiry's [shopping_mall_ai_backend_inquiries.id](#shopping_mall_ai_backend_inquiries).
+- `reply_id`
+  > Snapshot target reply's {@link
+  > shopping_mall_ai_backend_inquiry_replies.id}, nullable if the snapshot is
+  > for the inquiry itself.
+- `title`: (Resolved) inquiry title at time of snapshot.
+- `body`: (Resolved) inquiry or reply body at time of snapshot.
+- `private`: Privacy flag at time of snapshot.
+- `status`: Status (open/closed/etc) at time of snapshot.
+- `closed_at`: Closed at (if applicable) at snapshot point.
+- `author_type`: Type of author (customer/seller/admin/system) at snapshot point.
+- `created_at`: Timestamp when this snapshot was created.
+
+### `shopping_mall_ai_backend_inquiry_abuse_reports`
+
+Stores user-submitted abuse or violation reports against inquiries or
+replies. Includes linkage to reporting customer, to admin reviewer
+handling the report, timestamps, status, and references to the
+inquiry/reply in question. Enables abuse detection, moderation, and audit
+evidence.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `reporter_customer_id`: Reporting individual's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `inquiry_id`: Subject inquiry's [shopping_mall_ai_backend_inquiries.id](#shopping_mall_ai_backend_inquiries).
+- `reply_id`
+  > Subject reply's [shopping_mall_ai_backend_inquiry_replies.id](#shopping_mall_ai_backend_inquiry_replies),
+  > nullable if abuse report is about inquiry only.
+- `admin_id`
+  > Admin reviewer assigned to handle this report. {@link
+  > shopping_mall_ai_backend_admins.id}.
+- `reason`: Report details provided by reporter (freeform).
+- `status`: Report workflow status (open, under_review, resolved, rejected, closed).
+- `closed_at`: Closure timestamp for resolved/closed reports.
+- `created_at`: Timestamp when report was submitted.
+- `updated_at`: Timestamp when report was last updated.
+- `deleted_at`: Timestamp of report deletion (nullable).
+
+### `shopping_mall_ai_backend_inquiry_moderation_events`
+
+Chronological record of moderation actions/events affecting inquiries or
+abuse reports. Links actions to target inquiry, reply, or abuse report,
+records moderator/admin, event type (e.g., review, rejection,
+restoration), timestamp, and any rationale notes. Critical for compliance
+and audit trails. Managed only via admin/mod console.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `inquiry_id`
+  > Target inquiry's [shopping_mall_ai_backend_inquiries.id](#shopping_mall_ai_backend_inquiries), nullable
+  > if action relates directly to reply or report.
+- `reply_id`
+  > Target reply's [shopping_mall_ai_backend_inquiry_replies.id](#shopping_mall_ai_backend_inquiry_replies),
+  > nullable.
+- `abuse_report_id`
+  > Target abuse report's {@link
+  > shopping_mall_ai_backend_inquiry_abuse_reports.id}, nullable.
+- `admin_id`
+  > Administrator or moderator responsible for this action. {@link
+  > shopping_mall_ai_backend_admins.id}.
+- `event_type`: Event type (e.g., review, resolve, reject, restore, escalate).
+- `note`: Rationale or moderation note (freeform, optional).
+- `created_at`: Timestamp this moderation event was logged.
+
+### `shopping_mall_ai_backend_inquiry_faq_suggestions`
+
+Records AI-generated or admin-added FAQ suggestions linked to inquiries,
+with rationale, FAQ question/answer, system/admin status, and timestamp.
+Provides an audit trail of suggested/helpful resources for user or
+moderation workflows. Not directly managed by users; exists to support
+moderation and ML/AI explainability.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `inquiry_id`
+  > Inquiry for which FAQ is suggested. {@link
+  > shopping_mall_ai_backend_inquiries.id}.
+- `admin_id`
+  > Admin who confirmed/suggested/explained the FAQ. {@link
+  > shopping_mall_ai_backend_admins.id}, nullable if suggested by AI only.
+- `faq_question`: FAQ question suggested for user.
+- `faq_answer`: Suggested FAQ answer content.
+- `suggestion_type`: How the FAQ was suggested (AI, admin, manual, ML-model, review).
+- `status`: Status (suggested, accepted, dismissed, outdated, replaced).
+- `note`
+  > Explanation rationale, evidence, or ML/service reference for why the FAQ
+  > was suggested (optional).
+- `created_at`: Timestamp of FAQ suggestion creation.
+
+## Favorites
 
 ```mermaid
 erDiagram
-"aimall_backend_analytics_dashboards" {
+"shopping_mall_ai_backend_favorites" {
   String id PK
-  String code UK
-  String title
-  String description "nullable"
-  String config_json "nullable"
+  String shopping_mall_ai_backend_customer_id FK
+  String shopping_mall_ai_backend_favorite_folder_id FK "nullable"
+  String title_snapshot "nullable"
+  String target_type
+  String target_id_snapshot "nullable"
   DateTime created_at
   DateTime updated_at
+  DateTime deleted_at "nullable"
 }
-"aimall_backend_audit_logs" {
+"shopping_mall_ai_backend_favorite_products" {
   String id PK
-  String actor_id FK "nullable"
-  String event_type
-  String event_target "nullable"
-  String ip_address "nullable"
-  String outcome
-  String detail_json "nullable"
+  String shopping_mall_ai_backend_favorite_id FK
+  String shopping_mall_ai_backend_product_id FK
   DateTime created_at
 }
+"shopping_mall_ai_backend_favorite_addresses" {
+  String id PK
+  String shopping_mall_ai_backend_favorite_id FK,UK
+  String shopping_mall_ai_backend_customer_id FK
+  String address_snapshot "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_favorite_inquiries" {
+  String id PK
+  String shopping_mall_ai_backend_favorite_id FK
+  String shopping_mall_ai_backend_inquiry_id FK
+  String inquiry_snapshot "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_favorite_folders" {
+  String id PK
+  String shopping_mall_ai_backend_customer_id FK
+  String name
+  String description "nullable"
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_favorites" }o--o| "shopping_mall_ai_backend_favorite_folders" : favoriteFolder
+"shopping_mall_ai_backend_favorite_products" }o--|| "shopping_mall_ai_backend_favorites" : favorite
+"shopping_mall_ai_backend_favorite_addresses" |o--|| "shopping_mall_ai_backend_favorites" : favorite
+"shopping_mall_ai_backend_favorite_inquiries" }o--|| "shopping_mall_ai_backend_favorites" : favorite
 ```
 
-### `aimall_backend_analytics_dashboards`
+### `shopping_mall_ai_backend_favorites`
 
-[Analytics Dashboard] - This implements the requirement for centralized analytics dashboards as referenced in the technical architecture and analytics/monitoring requirements documents. This normalized entity represents configuration records for admin-customizable analytics dashboards (e.g., KPIs, fraud monitors). It ensures 3NF by only storing dashboard config data—not pre-aggregated or denormalized metric results. Example use: an admin creates a 'fraud monitoring' dashboard; access rights are managed externally. Supports audit linkage for change tracking via other tables.
-
-Properties as follows:
-
-- `id`: Primary Key. Unique identifier for the analytics dashboard.
-- `code`: [Dashboard Code] - Unique symbolic identifier for this dashboard (e.g., 'sales-kpi-main'). Used in lookup and linking; ensures no aggregate types are mixed here. Example: Used by admin UI to load dashboard definition by code.
-- `title`: [Dashboard Title] - Human-readable dashboard name for UI display (e.g., 'Sales Overview'). Atomic string for normalized structure. Example: Appears in dashboard selectors.
-- `description`: [Dashboard Description] - Optional detailed explanation of dashboard purpose. Example: Used for admin UI tooltips/documentation; null allowed.
-- `config_json`: [Dashboard Config JSON] - Serialized JSON (as string) storing dashboard widget/layout/metrics config. Only configuration is stored here, never calculated results. Example: '{"widgets":[{"type":"chart","metric":"orders_daily"}]}'
-- `created_at`: [Created At] - Creation timestamp. Used for sorting/audit; enforced at insert.
-- `updated_at`: [Updated At] - Last modification timestamp for change tracking/audit trail.
-
-### `aimall_backend_audit_logs`
-
-[Audit Log Entity] - Implements the technical/compliance requirement for all key admin/user/system actions and system events. Normalized append-only entity supporting traceable, regulatory-compliant audit trails for the platform (e.g., admin actions, config changes). Each row represents a single event, consistent with 3NF—no aggregates or summaries. Example usage: storing admin logins, permission changes, dashboard edits; deletion/updates forbidden. Relations to actors in otherComponents via actor_id foreign key. Supports full-text search on core event fields.
+Core business entity for a user's favorite item bookmark. Stores evidence
+of favorite creation, snapshotting relevant target details at the time of
+favoriting for audit and notification. May reference product, address,
+inquiry via mapping tables. Supports audit/evidence and notification
+functions. Each favorite belongs to a user and may be grouped via
+favorite folders.
 
 Properties as follows:
 
-- `id`: Primary Key. Unique identifier for the audit log event.
-- `actor_id`: [Actor Reference] - Foreign key referencing the administrator/user (from aimall_backend_administrators) responsible for the event. Key for audit traceability. Allows null for system/automated events. Maintains normalization by reference only, not denormalized actor info.
-- `event_type`: [Event Type] - Categorical string for the class of event ('LOGIN','PERMISSION_CHANGE','DASHBOARD_UPDATE', etc). Maintains 3NF by only storing atomic type.
-- `event_target`: [Event Target] - Resource/entity impacted (e.g., dashboard code, configuration key, resource ID). 3NF by only storing atomic identifier, not summary/result.
-- `ip_address`: [IP Address] - IP the event originated from; atomic string for auditing/admin compliance.
-- `outcome`: [Event Outcome] - Result state of action (e.g., 'SUCCESS', 'FAILED', 'DENIED'). Only stores normalized atomic event outcome.
-- `detail_json`: [Event Detail (JSON)] - Optional raw JSON string (text) giving extended context for the event; not pre-aggregated. E.g., '{"previous_role":"user","new_role":"admin"}'. Null allowed for minimal records.
-- `created_at`: [Event Timestamp] - When this log row was created; used for filtering/reporting. 3NF as atomic event record.
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_customer_id`: Belonged customer's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `shopping_mall_ai_backend_favorite_folder_id`
+  > Optional reference to a favorite folder grouping {@link
+  > shopping_mall_ai_backend_favorite_folders.id}.
+- `title_snapshot`
+  > Snapshot of the target item's title at the time of favoriting (for
+  > evidence/notification).
+- `target_type`
+  > Type of favorite target: 'product', 'address', 'inquiry', etc. Used for
+  > resolving the mapping table.
+- `target_id_snapshot`
+  > Snapshot/cached identifier of the target entity (e.g., product code,
+  > address ID). For evidence even if original is removed.
+- `created_at`: Favorite creation timestamp (evidence trail).
+- `updated_at`: Record last modification timestamp.
+- `deleted_at`: Soft-delete timestamp for logical deletion.
+
+### `shopping_mall_ai_backend_favorite_products`
+
+Mapping/supporting table for users' favorited products. Enables
+notification to the user about product changes. References both favorite
+and product IDs; preserves evidence. Used for personalizing product
+experiences and batch operations.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_favorite_id`
+  > Referenced favorite entity’s {@link
+  > shopping_mall_ai_backend_favorites.id}.
+- `shopping_mall_ai_backend_product_id`: Favorited product [shopping_mall_ai_backend_products.id](#shopping_mall_ai_backend_products).
+- `created_at`: Mapping creation time.
+
+### `shopping_mall_ai_backend_favorite_addresses`
+
+Mapping/support table for address favorites. Supports personalized
+checkout experience and fast address selection. Each record connects a
+favorite entity with a referenced address. Snapshotting provides evidence
+for future data integrity or notification.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_favorite_id`: Favorite entity’s [shopping_mall_ai_backend_favorites.id](#shopping_mall_ai_backend_favorites).
+- `shopping_mall_ai_backend_customer_id`
+  > Owner of the favorite. References {@link
+  > shopping_mall_ai_backend_customers.id}.
+- `address_snapshot`
+  > Cached address details for audit history and evidence. Used if address is
+  > changed or deleted.
+- `created_at`: Mapping creation time for audit trail.
+
+### `shopping_mall_ai_backend_favorite_inquiries`
+
+Mapping/supporting table connecting user favorites to inquiries (Q&A,
+help lines, support threads, etc.). Supports user notification for new
+answers and evidence preservation if inquiry content changes. Each record
+references a favorite and target inquiry.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_favorite_id`: Favorite entity’s [shopping_mall_ai_backend_favorites.id](#shopping_mall_ai_backend_favorites).
+- `shopping_mall_ai_backend_inquiry_id`: Favorited inquiry [shopping_mall_ai_backend_inquiries.id](#shopping_mall_ai_backend_inquiries).
+- `inquiry_snapshot`
+  > Cached/inlined inquiry title/body details for tracking, notification, and
+  > evidence of status/content at favoriting time.
+- `created_at`: Mapping creation timestamp for evidence/audit.
+
+### `shopping_mall_ai_backend_favorite_folders`
+
+User-customizable folders/tags used to organize favorites for management
+and notification grouping. Each folder belongs to a customer and may be
+referenced by many favorites. Enables customized notification and
+grouping logic for better user experience.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `shopping_mall_ai_backend_customer_id`: Folder owner's [shopping_mall_ai_backend_customers.id](#shopping_mall_ai_backend_customers).
+- `name`: Folder name or tag set by user for organization.
+- `description`: Optional folder description (user notes).
+- `created_at`: Folder creation time (auditable).
+- `updated_at`: Last folder update timestamp.
+- `deleted_at`: Soft-delete timestamp for logical deletion (folder hidden, not removed).
+
+## Articles
+
+```mermaid
+erDiagram
+"shopping_mall_ai_backend_articles" {
+  String id PK
+  String channel_id FK
+  String title
+  String body
+  String author_id
+  Boolean pinned
+  String status
+  Int view_count
+  Boolean is_notice
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_article_comments" {
+  String id PK
+  String article_id FK
+  String parent_id FK "nullable"
+  String author_id FK
+  String body
+  Boolean is_secret
+  String status
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_article_categories" {
+  String id PK
+  String parent_id FK "nullable"
+  String channel_id
+  String name
+  String description "nullable"
+  Int order
+  DateTime created_at
+  DateTime updated_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_article_tags" {
+  String id PK
+  String article_id FK
+  String tag
+}
+"shopping_mall_ai_backend_article_attachments" {
+  String id PK
+  String article_id FK "nullable"
+  String comment_id FK "nullable"
+  String file_id FK
+  DateTime created_at
+  DateTime deleted_at "nullable"
+}
+"shopping_mall_ai_backend_article_snapshots" {
+  String id PK
+  String article_id FK
+  String editor_id FK
+  String title
+  String body
+  String status
+  Boolean is_notice
+  Boolean pinned
+  DateTime created_at
+}
+"shopping_mall_ai_backend_article_moderation_logs" {
+  String id PK
+  String article_id FK "nullable"
+  String comment_id FK "nullable"
+  String moderator_id FK
+  String action
+  String reason
+  String evidence_file_id "nullable"
+  DateTime created_at
+}
+"shopping_mall_ai_backend_article_comments" }o--|| "shopping_mall_ai_backend_articles" : article
+"shopping_mall_ai_backend_article_comments" }o--o| "shopping_mall_ai_backend_article_comments" : parent
+"shopping_mall_ai_backend_article_categories" }o--o| "shopping_mall_ai_backend_article_categories" : parent
+"shopping_mall_ai_backend_article_tags" }o--|| "shopping_mall_ai_backend_articles" : article
+"shopping_mall_ai_backend_article_attachments" }o--o| "shopping_mall_ai_backend_articles" : article
+"shopping_mall_ai_backend_article_attachments" }o--o| "shopping_mall_ai_backend_article_comments" : comment
+"shopping_mall_ai_backend_article_snapshots" }o--|| "shopping_mall_ai_backend_articles" : article
+"shopping_mall_ai_backend_article_moderation_logs" }o--o| "shopping_mall_ai_backend_articles" : article
+"shopping_mall_ai_backend_article_moderation_logs" }o--o| "shopping_mall_ai_backend_article_comments" : comment
+```
+
+### `shopping_mall_ai_backend_articles`
+
+Holds core article content for community/post/notice board. Business
+entity for all user- and admin-generated long-form content, supporting
+publishing, editing, per-article moderation, cross-channel posting, and
+policy compliance. Related to comments, attachments, categories, tags,
+and has full versioning via snapshots.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `channel_id`
+  > Associated channel's [shopping_mall_ai_backend_channels.id](#shopping_mall_ai_backend_channels).
+  > Determines which sales or content channel article belongs to.
+- `title`
+  > Article title, used for navigation, search, and channel display. Must be
+  > concise and business-relevant.
+- `body`: Main content body (supports multi-format text: markdown, HTML, plaintext).
+- `author_id`
+  > Business author reference (admin, seller, or customer) as policy allows.
+  > References user entity by type. Polymorphic but required (resolved in
+  > business logic).
+- `pinned`
+  > Whether the article is pinned to the top (e.g., as announcement or
+  > notice). Used by admins or sellers for channel comms.
+- `status`
+  > Publication status: e.g. draft, published, archived, hidden. Keeps
+  > logical state for workflow control.
+- `view_count`
+  > Number of times article has been viewed. Updated independently; not used
+  > for materialized view in base table.
+- `is_notice`: Whether this article is a formal notice (shown in separate notice boards).
+- `created_at`: Creation timestamp. Used for sorting and audit.
+- `updated_at`: Update timestamp, modified on every content or metadata update.
+- `deleted_at`: Logical deletion time (soft-delete). If null, record is active.
+
+### `shopping_mall_ai_backend_article_comments`
+
+Business entity for user-generated comments on articles. Each comment may
+have replies or be standalone. Requires moderation and audit.
+Cross-article search supported, e.g. by user or keyword.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `article_id`: The [shopping_mall_ai_backend_articles.id](#shopping_mall_ai_backend_articles) this comment belongs to.
+- `parent_id`
+  > Self-reference to parent comment for replies. Enables multi-depth
+  > threads. Optional: root comments will be null.
+- `author_id`: Commenting user's entity (customer/admin/seller as per policy).
+- `body`: Comment content (plaintext or formatted as required).
+- `is_secret`
+  > Whether the comment is private/secret (e.g. Q&A only visible to
+  > customer/seller/admins).
+- `status`: Moderation/publication status: e.g., visible, hidden, flagged.
+- `created_at`: Timestamp when comment was created.
+- `updated_at`: Timestamp of last update.
+- `deleted_at`: Logical deletion for audit/evidence. If null comment is active.
+
+### `shopping_mall_ai_backend_article_categories`
+
+Business taxonomy for organizing articles into hierarchical or flat
+categories. Used for filtering, navigation, and analytics. Each category
+can be top-level or nested. Centralized management.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `parent_id`
+  > Optional parent for hierarchical categories (self-reference). Enables
+  > nesting (e.g. Announcement > Event).
+- `channel_id`
+  > Channel to which this category belongs. Enables different category trees
+  > by channel.
+- `name`: Category name, unique per channel tree.
+- `description`: Short description or guidelines about category purpose and scope.
+- `order`: Sort order within sibling categories (for navigation menus etc.).
+- `created_at`: Category creation time.
+- `updated_at`: Last update/modified date.
+- `deleted_at`: Soft-deleted time for audit; null if active.
+
+### `shopping_mall_ai_backend_article_tags`
+
+Article tagging entity supporting flexible, multi-instance tagging. Tags
+can be managed as a controlled list or ad-hoc. Used for classification,
+navigation, and analytics; not a primary entity but supports many-to-many
+mapping.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `article_id`: The [shopping_mall_ai_backend_articles.id](#shopping_mall_ai_backend_articles) this tag is assigned to.
+- `tag`
+  > Single tag text (e.g. 'FAQ', 'Update', 'Event'). Used for
+  > navigation/analytics.
+
+### `shopping_mall_ai_backend_article_attachments`
+
+File/attachment entity for linking files to articles or comments. Holds
+reference to uploaded file metadata, enabling flexible file management
+for images or documents related to content. Managed only through parent
+entities (not standalone).
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `article_id`
+  > The [shopping_mall_ai_backend_articles.id](#shopping_mall_ai_backend_articles) this file is attached
+  > to. Mutually exclusive with comment (one must be present).
+- `comment_id`
+  > The [shopping_mall_ai_backend_article_comments.id](#shopping_mall_ai_backend_article_comments) comment this
+  > attachment belongs to; for images/etc in discussions. Only one of
+  > article/comment set.
+- `file_id`
+  > Actual attachment file's [shopping_mall_ai_backend_files.id](#shopping_mall_ai_backend_files).
+  > References physical file metadata managed by ops.
+- `created_at`: Attachment registration time.
+- `deleted_at`: Logical deletion (if present, record is no longer visible).
+
+### `shopping_mall_ai_backend_article_snapshots`
+
+Immutable snapshots for all business state changes to articles. Every
+edit, publish, delete, etc. creates a full copy, enabling audit,
+rollback, and compliance evidence. Not directly user-editable. Used for
+legal, compliance, and business analysis.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `article_id`
+  > Target article's [shopping_mall_ai_backend_articles.id](#shopping_mall_ai_backend_articles) at this
+  > snapshot event.
+- `editor_id`
+  > Business entity that triggered the snapshot (admin/customer/seller, as
+  > allowed).
+- `title`: Title at the time of snapshot (immutable; preserved for evidence).
+- `body`
+  > Content at time of snapshot (immutable full copy, includes all business
+  > data for compliance/legal trace).
+- `status`
+  > Publication status at the time of snapshot (e.g., draft, published,
+  > archived).
+- `is_notice`: Notice status as of snapshot (copied from article).
+- `pinned`: Pinned-flag, copied at time of snapshot; supports rollback/audit.
+- `created_at`: Timestamp when snapshot created (event time, not original article time).
+
+### `shopping_mall_ai_backend_article_moderation_logs`
+
+Event log for all moderation, review, flagging, or compliance actions
+associated with articles or comments. Audit trail for interventions,
+supporting business/legal disputes. Each log may reference article or
+comment, or both, and records moderator who acted.
+
+Properties as follows:
+
+- `id`: Primary Key.
+- `article_id`
+  > Related article's [shopping_mall_ai_backend_articles.id](#shopping_mall_ai_backend_articles); may be
+  > null if log relates to comment only.
+- `comment_id`
+  > Related comment's [shopping_mall_ai_backend_article_comments.id](#shopping_mall_ai_backend_article_comments);
+  > null unless event targeted at comment (vs article).
+- `moderator_id`: Moderator/admin entity who performed moderation action.
+- `action`
+  > Describes moderation event (flagged, approved, removed, warned, restored
+  > etc.)
+- `reason`
+  > Details for evidence: explicit reasoning, user report, compliance policy
+  > etc.
+- `evidence_file_id`
+  > Optional reference to evidence file (if provided as proof, screenshot,
+  > etc.).
+- `created_at`: Timestamp for moderation event.

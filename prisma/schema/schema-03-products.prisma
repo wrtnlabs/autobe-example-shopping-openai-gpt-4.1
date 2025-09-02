@@ -1,254 +1,478 @@
-/// Product master (core SKU/group) - This implements the comprehensive product catalog requirement from the Product Management document. Central record for all products listed across the platform. Holds product metadata, primary relationships (category, seller), and references to options and bundles. Maintains 3NF by not duplicating inventory, option, or category data – all relationships via foreign keys. For example, sellers define products here, and inventory or options are in linked tables. Key relationships: links to aimall_backend_sellers (already created table) and aimall_backend_categories. Special behaviors: Only normalized product master data; no precomputed inventory, price, or reviews.
+/// Core product entity representing individual commerce items. Contains
+/// business attributes such as title, slug, description, seller reference,
+/// commerce status, minimum and maximum order amounts, product type, and
+/// additional configurations. Every update to this entity must be
+/// snapshotted to support audit and rollback. Linked via foreign keys to
+/// seller entities, and by extensions to options, bundles, categories, tags,
+/// and files. This table is essential for search, browse, and transaction
+/// eligibility decisions.
 ///
 /// @namespace Products
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_products {
+model shopping_mall_ai_backend_products {
   //----
   // COLUMNS
   //----
-  /// Primary Key. Uniquely identifies each product.
-  id String @id
+  /// Primary Key.
+  id String @id @db.Uuid
   
-  /// Category's {@link aimall_backend_categories.id}. References which category this product belongs to.
-  category_id String
-  
-  /// Seller's {@link aimall_backend_sellers.id} - Who owns this product (from Actors domain; reference only).
-  seller_id String
-  
-  /// Product title - Implements product listing requirement. Human-readable product name. Ensures normalization as only master copy here. Example: 'Apple AirPods Pro 2'.
+  /// Product title/name displayed to users, unique per seller and channel
+  /// context.
   title String
   
-  /// Product detail/description - Implements product content requirement. Long text explaining features. Normalized; not duplicated elsewhere. Example: 'Latest model, improved noise cancellation.'
+  /// SEO-friendly product slug, unique per channel and seller context.
+  slug String
+  
+  /// Detailed product description and content body.
   description String?
   
-  /// Main thumbnail image URI - Implements image management requirement. Single main image URI. Only stored here, not duplicated in options. Example: 'https://cdn/airpods2-thumb.jpg'.
-  main_thumbnail_uri String?
+  /// Type of product (e.g., physical, digital, service). Guides fulfillment
+  /// and inventory logic.
+  product_type String
   
-  /// Status of product (active, inactive, out_of_stock, deleted) - Tracks whether product is available. Normalized field. Example: 'active'.
-  status String
+  /// Current commerce status (e.g., draft, active, paused, restricted,
+  /// deleted). Drives order eligibility and visibility.
+  business_status String
   
-  /// Created timestamp - Implements audit and snapshot needs. Creation datetime. Example: 2024-05-01T10:00:00Z.
-  created_at DateTime
+  /// Minimum orderable quantity for a valid purchase.
+  min_order_quantity Int @db.Integer
   
-  /// Updated timestamp. To support change and audit needs. Example: 2024-05-02T15:10:00Z.
-  updated_at DateTime
+  /// Maximum orderable quantity per transaction.
+  max_order_quantity Int @db.Integer
   
-  //----
-  // RELATIONS
-  //----
-  fk_aimall_backend_products_category_id aimall_backend_categories @relation(fields: [category_id], references: [id], onDelete: Cascade)
-  fk_aimall_backend_products_seller_id aimall_backend_sellers @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  /// Applicable tax code category used for compliance and reporting.
+  tax_code String
   
-  aimall_backend_product_options aimall_backend_product_options[]
-  aimall_backend_product_bundles_of_bundle_product_id aimall_backend_product_bundles[] @relation("aimall_backend_product_bundles_of_bundle_product_id")
-  aimall_backend_product_bundles_of_component_product_id aimall_backend_product_bundles[] @relation("aimall_backend_product_bundles_of_component_product_id")
-  aimall_backend_skus aimall_backend_skus[]
-  aimall_backend_inventory_snapshots aimall_backend_inventory_snapshots[]
-  aimall_backend_channel_assignments aimall_backend_channel_assignments[]
-  aimall_backend_reviews aimall_backend_reviews[]
-  aimall_backend_snapshots aimall_backend_snapshots[]
-  aimall_backend_cart_items aimall_backend_cart_items[]
-  aimall_backend_order_items aimall_backend_order_items[]
+  /// Manual or computed sort priority for product listings.
+  sort_priority Int @db.Integer
   
-  @@unique([seller_id, title])
-  @@index([category_id])
-  @@index([created_at])
-}
-
-/// Product options (variant definitions) - Implements the SKU/variant requirement in the Product Management and ERD. Stores all option variants for products (e.g., color, size). Maintains 3NF by only referencing products and not duplicating inventory or price. For example, 'Color: Black', 'Size: M' for given product. Key relationships: links to aimall_backend_products. Special behaviors: One record per option value; combinations for full SKU are stored in aimall_backend_skus.
-///
-/// @namespace Products
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_product_options {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key. Unique per product option.
-  id String @id
+  /// UTC timestamp when product was created.
+  created_at DateTime @db.Timestamptz
   
-  /// Product's {@link aimall_backend_products.id} - Which product this option belongs to.
-  product_id String
+  /// UTC timestamp when product was last updated.
+  updated_at DateTime @db.Timestamptz
   
-  /// Option name (e.g., Color, Size) - Implements option specification requirement. Atomic; not duplicated. For example, 'Color'.
-  name String
-  
-  /// Option value (e.g., Red, Large) - Option value per option type. Ensures full normalization. For example, 'Black'.
-  value String
+  /// Timestamp when product was logically deleted. Null if not deleted.
+  deleted_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  fk_aimall_backend_product_options_product_id aimall_backend_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  shopping_mall_ai_backend_product_options shopping_mall_ai_backend_product_options[]
+  shopping_mall_ai_backend_product_bundles shopping_mall_ai_backend_product_bundles[]
+  shopping_mall_ai_backend_product_category_mappings shopping_mall_ai_backend_product_category_mappings[]
+  shopping_mall_ai_backend_product_files shopping_mall_ai_backend_product_files[]
+  shopping_mall_ai_backend_product_snapshots shopping_mall_ai_backend_product_snapshots[]
+  shopping_mall_ai_backend_product_inventories shopping_mall_ai_backend_product_inventories[]
+  shopping_mall_ai_backend_order_items shopping_mall_ai_backend_order_items[]
+  shopping_mall_ai_backend_coupon_restrictions shopping_mall_ai_backend_coupon_restrictions[]
+  shopping_mall_ai_backend_inquiries shopping_mall_ai_backend_inquiries[]
+  shopping_mall_ai_backend_favorite_products shopping_mall_ai_backend_favorite_products[]
   
-  aimall_backend_cart_items aimall_backend_cart_items[]
-  aimall_backend_order_items aimall_backend_order_items[]
-  
-  @@unique([product_id, name, value])
-  @@index([product_id])
+  @@unique([slug])
+  @@index([product_type])
+  @@index([business_status])
+  @@index([tax_code])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// Product bundles (set/group of products) - Implements the bundle/package product requirement from Product Management. Defines relationships between products that are sold together as bundles. Strictly normalized: just references to master products and role (main vs component). Never includes precomputed price or stock. For example, 'Gift Set' containing three products. Key relationships: links to main product and bundled product (both aimall_backend_products). Special behaviors: For M:N bundles, each row links a bundle and a bundled component.
+/// Product option groups (e.g., color, size) that define available choices
+/// per product. Each option group belongs to a product, provides business
+/// logic for required/optional/combination selection, and is versioned for
+/// audit. Directly linked to units for physical SKUs or attributes. Managed
+/// by sellers/admins in the product management flow.
 ///
 /// @namespace Products
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_product_bundles {
+model shopping_mall_ai_backend_product_options {
   //----
   // COLUMNS
   //----
-  /// Primary Key. Unique per bundle-member relation.
-  id String @id
+  /// Primary Key.
+  id String @id @db.Uuid
   
-  /// Main bundle product's {@link aimall_backend_products.id}. Represents the product that is a bundle group/master.
-  bundle_product_id String
+  /// Belonged product's {@link shopping_mall_ai_backend_products.id}
+  shopping_mall_ai_backend_products_id String @db.Uuid
   
-  /// Bundled component product's {@link aimall_backend_products.id}. Represents the directly included (child) product.
-  component_product_id String
+  /// Label for option group (e.g., color, size).
+  option_name String
   
-  /// Indicates if the component is required for the bundle - Implements bundle rule requirement. For example, requiring all components for fixed set; false for optional (e.g., gift add-on).
-  is_required Boolean
+  /// Whether option selection is required for order eligibility.
+  required Boolean
   
-  /// Quantity of this component in the bundle - How many units included per bundle. Maintains normalization by not duplicating product details. Example: 2 means two of this item per bundle.
-  quantity Int
+  /// Display order of this option group among product options.
+  sort_order Int @db.Integer
+  
+  /// Timestamp when this option group was created.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp when this option group was last updated.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp for this option group. Null if active.
+  deleted_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  fk_aimall_backend_product_bundles_bundle_product_id aimall_backend_products @relation("aimall_backend_product_bundles_of_bundle_product_id", fields: [bundle_product_id], references: [id], onDelete: Cascade)
-  fk_aimall_backend_product_bundles_component_product_id aimall_backend_products @relation("aimall_backend_product_bundles_of_component_product_id", fields: [component_product_id], references: [id], onDelete: Cascade)
+  product shopping_mall_ai_backend_products @relation(fields: [shopping_mall_ai_backend_products_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_options_shopping_mall_dd9426d4")
   
-  @@index([component_product_id])
+  shopping_mall_ai_backend_product_option_units shopping_mall_ai_backend_product_option_units[]
+  shopping_mall_ai_backend_order_items shopping_mall_ai_backend_order_items[]
   
-  @@unique([bundle_product_id, component_product_id], map: "aimall_backend_product_bundles_bundle_product_id_compo_b1a8e08d")
-  @@index([bundle_product_id])
+  @@index([shopping_mall_ai_backend_products_id, option_name], map: "shopping_mall_ai_backend_product_options_shopping_mall_28facb02")
+  @@index([option_name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// Product categories (taxonomy) - Implements category management and classification from Product Management. Defines the product taxonomy hierarchy (main/sub/section levels). Maintains 3NF – only category data; no product fields here. For example, 'Electronics > Phones > Accessories'. Key relationships: can be hierarchical via parent_id (self-reference); products reference categories. Special behaviors: Hierarchical nesting is optional (nullable parent_id); root categories have null parent_id.
+/// Concrete selectable unit (e.g., Red, XL) within an option group for a
+/// product. Each unit belongs to a product option, contains value and code
+/// (for business rules/mapping), and has associated sort/display order. SKU
+/// inventory is typically tracked at this or a bundled level. Used in
+/// detailed order and inventory logic.
 ///
 /// @namespace Products
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_categories {
+model shopping_mall_ai_backend_product_option_units {
   //----
   // COLUMNS
   //----
-  /// Primary Key. Unique per category.
-  id String @id
+  /// Primary Key.
+  id String @id @db.Uuid
   
-  /// Parent category's {@link aimall_backend_categories.id}. Hierarchical parent, or null for root categories.
-  parent_id String?
+  /// Option group {@link shopping_mall_ai_backend_product_options.id} this
+  /// unit belongs to.
+  shopping_mall_ai_backend_product_options_id String @db.Uuid
   
-  /// Category name - Implements taxonomy labeling. Atomic; no category hierarchy in this field. For example: 'Electronics'.
-  name String
+  /// Display value for this selectable unit (e.g., Red, XL).
+  unit_value String
   
-  /// Hierarchy depth - Root=1, increasing with subcategories. Implements hierarchy requirement. For example, 2 for subcategory.
-  depth Int
+  /// Machine-readable code for business logic, analytics.
+  unit_code String
+  
+  /// Display order for selectable units within option group.
+  sort_order Int @db.Integer
+  
+  /// Creation timestamp of this unit.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last updated timestamp of this unit.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp. Null if active.
+  deleted_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  fk_aimall_backend_categories_parent_id aimall_backend_categories? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  option shopping_mall_ai_backend_product_options @relation(fields: [shopping_mall_ai_backend_product_options_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_option_units_shopping_58c57132")
   
-  aimall_backend_products aimall_backend_products[]
-  recursive aimall_backend_categories[] @relation("recursive")
-  
-  @@unique([parent_id, name])
-  @@index([parent_id])
+  @@unique([shopping_mall_ai_backend_product_options_id, unit_code], map: "shopping_mall_ai_backend_product_option_units_shopping_cca67ba1")
+  @@index([unit_value(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// SKU master (variant combinations) - Implements complete variant/SKU specification from Product Management. Defines each purchasable SKU (combination of product + options), with references to all option values selected. Fully normalized: no pricing, inventory, or calculated data; only references and atomic SKU codes. For example, a unique SKU for 'AirPods Pro 2, Color: Black, Case: Yes'. Key relationships: links to product and all relevant options. Special behaviors: Unique per product and option combination.
+/// Logical grouping of product option units, representing specific item
+/// variants (e.g., [Red, Large] bundle = unique SKU). Bundles can be used
+/// for package deals or unique SKUs with associated inventory/price. Each
+/// bundle is mapped to option units, owned by the parent product.
 ///
 /// @namespace Products
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_skus {
+model shopping_mall_ai_backend_product_bundles {
   //----
   // COLUMNS
   //----
-  /// Primary Key. Unique per SKU.
-  id String @id
+  /// Primary Key.
+  id String @id @db.Uuid
   
-  /// Product's {@link aimall_backend_products.id} for which this SKU is defined.
-  product_id String
+  /// Product owning the bundle. {@link shopping_mall_ai_backend_products.id}
+  shopping_mall_ai_backend_products_id String @db.Uuid
   
-  /// Platform-unique SKU code - Implements SKU referencing. Example: 'APPRO2-BLK-CASEY'.
+  /// Display name for this bundle/variant combination.
+  bundle_name String
+  
+  /// Unique code representing this bundle/SKU.
   sku_code String
   
+  /// Price for this bundle (could override product base price).
+  price Float @db.DoublePrecision
+  
+  /// Inventory control logic (e.g., track, ignore, by parent config).
+  inventory_policy String
+  
+  /// Whether this bundle is available for sale.
+  is_active Boolean
+  
+  /// Bundle creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last update timestamp for bundle.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deaetion timestamp; null if active.
+  deleted_at DateTime? @db.Timestamptz
+  
   //----
   // RELATIONS
   //----
-  fk_aimall_backend_skus_product_id aimall_backend_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  product shopping_mall_ai_backend_products @relation(fields: [shopping_mall_ai_backend_products_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_bundles_shopping_mall_17aeb0c8")
   
-  aimall_backend_inventory_snapshots aimall_backend_inventory_snapshots[]
-  aimall_backend_cart_items aimall_backend_cart_items[]
+  shopping_mall_ai_backend_order_items shopping_mall_ai_backend_order_items[]
+  
+  @@index([shopping_mall_ai_backend_products_id], map: "shopping_mall_ai_backend_product_bundles_shopping_mall_3e8ad624")
   
   @@unique([sku_code])
-  @@index([product_id])
+  @@index([bundle_name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// Inventory snapshot logger - Implements inventory audit trail, atomicity, and change tracking from Product Management. Records all changes to inventory for audit and temporal reconstruction. Fully normalized: references the SKU, never precomputes total inventory. For example, logs each change when inventory is updated due to sales, restock, or manual adjustment. Key relationships: links to SKUs and products. Special behaviors: Can reconstruct point-in-time inventory by aggregating snapshots for a SKU/product.
+/// Tag master for products. Tags provide user-searchable, vendor-assigned,
+/// and/or AI-suggested semantic attributes for categorizing and filtering
+/// products (e.g., 'eco-friendly', 'new arrival'). Tags can be mapped to
+/// products many-to-many via relation tables or extensions.
 ///
 /// @namespace Products
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_inventory_snapshots {
+model shopping_mall_ai_backend_product_tags {
   //----
   // COLUMNS
   //----
-  /// Primary Key. Unique per inventory change event.
-  id String @id
+  /// Primary Key.
+  id String @id @db.Uuid
   
-  /// SKU's {@link aimall_backend_skus.id} for which inventory was changed.
-  sku_id String
+  /// Business-visible tag (label/content) for product filtering/search.
+  tag_name String
   
-  /// Product's {@link aimall_backend_products.id} (denormalized FK for easier audit).
-  product_id String
+  /// Machine-assigned code for business logic, search optimization, and
+  /// analytics.
+  tag_code String
   
-  /// Type of inventory change - Implements stock mutation requirement. Examples: 'sale', 'restock', 'manual_adjust'.
-  change_type String
+  /// Tag creation timestamp.
+  created_at DateTime @db.Timestamptz
   
-  /// Quantity of change (positive/negative) - Atomic per event. For example, -1 for sale, +5 for restock.
-  change_quantity Int
+  /// Last update timestamp.
+  updated_at DateTime @db.Timestamptz
   
-  /// Actor's user id (e.g. admin or seller) - Who caused the change. Ensures proper audit trail. Example: seller UUID.
-  changed_by String
-  
-  /// Timestamp when snapshot created. Implements audit/compliance.
-  created_at DateTime
+  /// Tag deletion timestamp; null if not deleted.
+  deleted_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  fk_aimall_backend_inventory_snapshots_sku_id aimall_backend_skus @relation(fields: [sku_id], references: [id], onDelete: Cascade)
-  fk_aimall_backend_inventory_snapshots_product_id aimall_backend_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  
-  @@index([sku_id])
-  @@index([product_id])
-  @@index([created_at])
+  @@unique([tag_code])
+  @@index([tag_name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// Channel assignment for product listing - Implements cross-channel management from Product Management. Records product's registration and mapping to multiple channels (e.g. online store, section, marketplace). Maintains 3NF by only referencing IDs. Example: A product may be listed on two channels; each row here for a channel. No pricing or denormalized status fields. Key relationships: links to aimall_backend_products and already created aimall_backend_channels. Special behaviors: Each tuple is unique: a product appears at most once per channel.
+/// Product category master holds the hierarchical definition of product
+/// categories (e.g., Electronics > Computers > Laptops). Used for
+/// navigation, search, and data analytics. Every product can belong to
+/// multiple categories via mapping table.
 ///
 /// @namespace Products
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_channel_assignments {
+model shopping_mall_ai_backend_product_categories {
   //----
   // COLUMNS
   //----
-  /// Primary Key. Unique per product/channel tuple.
-  id String @id
+  /// Primary Key.
+  id String @id @db.Uuid
   
-  /// Product's {@link aimall_backend_products.id} for this listing.
-  product_id String
+  /// Display name of this category.
+  category_name String
   
-  /// Channel's {@link aimall_backend_channels.id} (already implemented in Systematic domain).
-  channel_id String
+  /// Unique code for machine lookup, search, analytics.
+  category_code String
   
-  /// Assignment timestamp - When product was listed on this channel. Maintains correct timeline for audit/rollback. Example: 2024-05-02T13:20:00Z.
-  assigned_at DateTime
+  /// Indicates parent category for category tree; null if top level.
+  parent_id String? @db.Uuid
+  
+  /// Depth of this category in hierarchy (root = 0).
+  category_depth Int @db.Integer
+  
+  /// Is category shown to users in navigation, search, etc.
+  is_active Boolean
+  
+  /// Order among sibling categories for display.
+  sort_order Int @db.Integer
+  
+  /// Category creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Last modified timestamp.
+  updated_at DateTime @db.Timestamptz
+  
+  /// If deleted, deletion time, or null if active.
+  deleted_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  fk_aimall_backend_channel_assignments_product_id aimall_backend_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
-  fk_aimall_backend_channel_assignments_channel_id aimall_backend_channels @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  shopping_mall_ai_backend_product_category_mappings shopping_mall_ai_backend_product_category_mappings[]
   
-  @@unique([product_id, channel_id])
-  @@index([channel_id])
+  @@unique([category_code])
+  @@index([category_name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Junction table mapping products to categories (many-to-many). Each row
+/// represents one product-category association, used for navigation,
+/// filtering, and analytics. Enforces unique (product_id, category_id)
+/// constraint to prevent duplicates. Not managed independently from
+/// products/categories.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_product_category_mappings {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Product reference. {@link shopping_mall_ai_backend_products.id}
+  shopping_mall_ai_backend_products_id String @db.Uuid
+  
+  /// Category reference. {@link shopping_mall_ai_backend_product_categories.id}
+  shopping_mall_ai_backend_product_categories_id String @db.Uuid
+  
+  /// Timestamp when product-category mapping was created.
+  assigned_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_ai_backend_products @relation(fields: [shopping_mall_ai_backend_products_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_category_mappings_sho_86d00f7d")
+  category shopping_mall_ai_backend_product_categories @relation(fields: [shopping_mall_ai_backend_product_categories_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_category_mappings_sho_6e53f464")
+  
+  @@index([shopping_mall_ai_backend_product_categories_id], map: "shopping_mall_ai_backend_product_category_mappings_sho_1cde50dc")
+  
+  @@unique([shopping_mall_ai_backend_products_id, shopping_mall_ai_backend_product_categories_id], map: "shopping_mall_ai_backend_product_category_mappings_sho_ea3010bc")
+}
+
+/// Files and images attached to products for presentation (main image,
+/// thumbnails, downloadable files). Stores metadata for display (file type,
+/// uploader, order) and references file storage for content resolution.
+/// Files may be managed by admins or sellers depending on product origin.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_product_files {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Referenced product. {@link shopping_mall_ai_backend_products.id}
+  shopping_mall_ai_backend_products_id String @db.Uuid
+  
+  /// Storage URI or CDN link for file/image.
+  file_uri String @db.VarChar(80000)
+  
+  /// Content type (e.g. image/jpeg, application/pdf).
+  file_type String
+  
+  /// Order among product files -- determines display priority.
+  display_order Int @db.Integer
+  
+  /// Is this file the primary display image?
+  is_primary Boolean
+  
+  /// Attachment creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// If deleted, timestamp; null if not deleted.
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_ai_backend_products @relation(fields: [shopping_mall_ai_backend_products_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_files_shopping_mall_a_ffe1173e")
+  
+  @@index([shopping_mall_ai_backend_products_id], map: "shopping_mall_ai_backend_product_files_shopping_mall_a_bda2062a")
+  
+  @@unique([file_uri])
+}
+
+/// Immutable historical record for point-in-time product state. Each
+/// snapshot references its original product and contains a full copy of all
+/// relevant product fields and relations at creation time. Used for audit
+/// compliance, evidence in disputes, and rollback. Snapshots are managed
+/// only via versioning logic and are never updated after creation.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_product_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Product record this snapshot covers. {@link
+  /// shopping_mall_ai_backend_products.id}
+  shopping_mall_ai_backend_products_id String @db.Uuid
+  
+  /// Sequence number or revision index for versioning.
+  snapshot_index Int @db.Integer
+  
+  /// Serialized JSON or business object containing historical data for audit.
+  snapshot_content String
+  
+  /// Business reason or trigger for snapshot (manual update, system,
+  /// correction, rollback, etc.).
+  snapshot_reason String
+  
+  /// Time when snapshot was created.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_ai_backend_products @relation(fields: [shopping_mall_ai_backend_products_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_snapshots_shopping_ma_f8ecd26d")
+  
+  shopping_mall_ai_backend_cart_items shopping_mall_ai_backend_cart_items[]
+  
+  @@index([shopping_mall_ai_backend_products_id], map: "shopping_mall_ai_backend_product_snapshots_shopping_ma_19402bd3")
+}
+
+/// Tracks stock level for products or bundles. Each record references a
+/// product or bundle, shows available quantity, reserved quantity, and last
+/// movement time. Provides base view for inventory tracking, order
+/// commitment, and business analysis. May point to either product or bundle
+/// as needed by business logic (union handled at application tier). Not
+/// independently managed by end users.
+///
+/// @namespace Products
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_product_inventories {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Product this inventory is linked to. {@link
+  /// shopping_mall_ai_backend_products.id}
+  shopping_mall_ai_backend_products_id String @db.Uuid
+  
+  /// Units available for sale (not reserved/committed).
+  available_quantity Int @db.Integer
+  
+  /// Committed units pending order completion.
+  reserved_quantity Int @db.Integer
+  
+  /// Time of the most recent stock movement (in/out/adjust).
+  last_update_at DateTime @db.Timestamptz
+  
+  /// Business status of inventory (e.g., in_stock, out_of_stock, reserved,
+  /// discontinued).
+  inventory_status String
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_ai_backend_products @relation(fields: [shopping_mall_ai_backend_products_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_product_inventories_shopping__36cf87fd")
+  
+  @@index([shopping_mall_ai_backend_products_id], map: "shopping_mall_ai_backend_product_inventories_shopping__3d59e671")
+  
+  @@index([inventory_status], map: "shopping_mall_ai_backend_product_inventories_inventory_ba6fac3b")
 }

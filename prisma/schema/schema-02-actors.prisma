@@ -1,282 +1,566 @@
-/// Customer account data - This implements the core customer entity requirement from the Customer System requirements document. This model represents end-users who engage in shopping, use personalized features, and manage their own profiles, providing the anchor for all customer-centric activities. Maintains 3NF by separating identity and behavioral data. For example, referenced in orders, addresses, reviews, and behavior logs. Key relationships: links to external accounts, addresses, behavioral tracking. Special behaviors: unique constraints on identity; deletion triggers anonymization except for compliance logs.
+/// Customer account information including all identity, authentication, and
+/// business lifecycle attributes. Serves as the base entity for all
+/// customer-centric commerce, holding references to profile, registration,
+/// and current status data. Supports independent user management,
+/// onboarding, and withdrawal requests. Linked to withdrawal and session
+/// event models.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_customers {
+model shopping_mall_ai_backend_customers {
   //----
   // COLUMNS
   //----
   /// Primary Key.
-  id String @id
+  id String @id @db.Uuid
   
-  /// The customer's primary email address - Implements identity requirement. Used for authentication and notifications. Enforces normalization by not duplicating across other tables. For example: unique login/email mapping. Must be unique.
+  /// Email address used for authentication and notifications. Must be unique
+  /// per channel.
   email String
   
-  /// Customer’s primary phone number. Implements alternative contact requirement. Kept atomic. Used for SMS notification and verification flows. Example: profile edit, password reset.
-  phone String
+  /// Customer's verified mobile phone number. Used for primary contact and
+  /// regulatory identity check.
+  phone_number String
   
-  /// Secure hashed password for the customer. Implements authentication requirement. Ensures security by never storing plain text. Used during login. Null for external-only accounts.
-  password_hash String?
+  /// Hash of customer's authentication password. Never stored in cleartext.
+  password_hash String
   
-  /// Account status (e.g., active, suspended, pending, deleted). Implements status tracking. Maintains normalization as atomic code. Example usage: onboarding approval, account lock.
-  status String
-  
-  /// Timestamp of account creation. Implements audit trail. Kept atomic and fully normalized. Used for registration analytics.
-  created_at DateTime
-  
-  /// Timestamp of last profile update. Implements audit and integrity requirement. Tracked for compliance/logging.
-  updated_at DateTime
-  
-  //----
-  // RELATIONS
-  //----
-  aimall_backend_external_accounts aimall_backend_external_accounts[]
-  aimall_backend_behavior_trackings aimall_backend_behavior_trackings[]
-  aimall_backend_addresses aimall_backend_addresses[]
-  aimall_backend_posts aimall_backend_posts[]
-  aimall_backend_comments aimall_backend_comments[]
-  aimall_backend_reviews aimall_backend_reviews[]
-  aimall_backend_snapshots aimall_backend_snapshots[]
-  aimall_backend_carts aimall_backend_carts?
-  aimall_backend_orders aimall_backend_orders[]
-  aimall_backend_coupons aimall_backend_coupons[]
-  aimall_backend_coupon_redemptions aimall_backend_coupon_redemptions[]
-  aimall_backend_loyalty_transactions aimall_backend_loyalty_transactions[]
-  aimall_backend_abuse_incidents aimall_backend_abuse_incidents[]
-  aimall_backend_support_tickets aimall_backend_support_tickets[]
-  
-  @@unique([email])
-  @@unique([phone])
-  @@index([created_at])
-}
-
-/// Seller account record - Implements the seller onboarding and management requirement from the Seller System requirements. Each record represents a merchant business identity for listing, inventory management, and analytics. Maintains 3NF by storing only atomic seller-level data. Related to permissions for advanced controls. Example: referenced when tracking seller performance or auditing onboarding. Key relationships: may reference granular permission entity. Special behaviors: Verification/check/audit status handled via status field.
-///
-/// @namespace Actors
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_sellers {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Seller’s registered business name. Implements business profile requirement. Normalized to avoid duplication in product or order records. Used for display and compliance checks.
-  business_name String
-  
-  /// Seller’s business contact email. Used for onboarding, notification, and login if allowed. Maintains uniqueness and normalization. For example: used in seller sign-up, password reset.
-  email String
-  
-  /// Seller’s primary contact phone. Implements communication and verification requirement. Purely atomic and for contact purposes.
-  contact_phone String
-  
-  /// Onboarding and operational status (pending, approved, rejected, suspended). Used for permission logic and admin review flows. Example: audit transitions, dashboard access.
-  status String
-  
-  /// Timestamp of seller account creation. For audit and compliance. Example: onboarding analytics.
-  created_at DateTime
-  
-  /// Timestamp of last seller account update. For audit, change tracking.
-  updated_at DateTime
-  
-  //----
-  // RELATIONS
-  //----
-  aimall_backend_products aimall_backend_products[]
-  aimall_backend_orders aimall_backend_orders[]
-  
-  @@unique([email])
-  @@index([created_at])
-}
-
-/// Platform administrator entity - Implements the administrator user management and permission assignment requirement. Stores atomic data for each admin-level user with assigned permissions. Maintains 3NF by not mixing with seller/customer logic. Used for full or scoped admin access, activity logging, and audit traceability. Example: System operator signs in and manages sellers. Key relationships: references permissions entity for role assignments.
-///
-/// @namespace Actors
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_administrators {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// References {@link aimall_backend_permissions.id} for assigned admin permission set. Enables hierarchical controls. For example: super admin vs. support admin.
-  permission_id String
-  
-  /// Administrator’s email address. Used for sign-in and notification. Must be unique. Normalized.
-  email String
-  
-  /// Administrator display name. Implements admin user naming requirement. Used for dashboard, audit logs. Kept atomic and normalized, not duplicated elsewhere.
+  /// Full legal name of the customer as supplied or verified during onboarding.
   name String
   
-  /// Operational status (active, suspended, pending). Used for access gating and audit flows.
-  status String
+  /// Customer's preferred display nickname. Displayed to sellers and in
+  /// community features.
+  nickname String?
   
-  /// Creation date for admin account. Used for join analysis, audit trace.
-  created_at DateTime
+  /// Whether the customer account is currently active and enabled for login.
+  is_active Boolean
   
-  /// Last update timestamp.
-  updated_at DateTime
+  /// Whether real-name and/or mobile number identity verification is completed.
+  is_verified Boolean
+  
+  /// Timestamp of the customer's most recent valid login. Useful for activity
+  /// tracking and account monitoring.
+  last_login_at DateTime? @db.Timestamptz
+  
+  /// Timestamp when the customer account was created.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp when the customer account record was last updated.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Timestamp recording logical deletion (withdrawal or admin removal) for
+  /// compliance.
+  deleted_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  admin_permission aimall_backend_permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade)
-  
-  aimall_backend_support_tickets aimall_backend_support_tickets[]
-  aimall_backend_audit_logs aimall_backend_audit_logs[]
-  
-  @@index([permission_id])
+  shopping_mall_ai_backend_customer_withdrawals shopping_mall_ai_backend_customer_withdrawals[]
+  shopping_mall_ai_backend_customer_sessions shopping_mall_ai_backend_customer_sessions[]
+  shopping_mall_ai_backend_customer_external_identities shopping_mall_ai_backend_customer_external_identities[]
+  shopping_mall_ai_backend_role_escalations shopping_mall_ai_backend_role_escalations[]
+  shopping_mall_ai_backend_carts shopping_mall_ai_backend_carts[]
+  shopping_mall_ai_backend_orders shopping_mall_ai_backend_orders[]
+  shopping_mall_ai_backend_coupon_issuances shopping_mall_ai_backend_coupon_issuances[]
+  shopping_mall_ai_backend_coupon_usages shopping_mall_ai_backend_coupon_usages[]
+  shopping_mall_ai_backend_coupon_restrictions shopping_mall_ai_backend_coupon_restrictions[]
+  shopping_mall_ai_backend_coupon_notifications shopping_mall_ai_backend_coupon_notifications[]
+  shopping_mall_ai_backend_deposits shopping_mall_ai_backend_deposits?
+  shopping_mall_ai_backend_deposit_transactions shopping_mall_ai_backend_deposit_transactions[]
+  shopping_mall_ai_backend_mileages shopping_mall_ai_backend_mileages?
+  shopping_mall_ai_backend_mileage_transactions shopping_mall_ai_backend_mileage_transactions[]
+  shopping_mall_ai_backend_coins shopping_mall_ai_backend_coins?
+  shopping_mall_ai_backend_coin_transactions shopping_mall_ai_backend_coin_transactions[]
+  shopping_mall_ai_backend_financial_incidents shopping_mall_ai_backend_financial_incidents[]
+  shopping_mall_ai_backend_inquiries shopping_mall_ai_backend_inquiries[]
+  shopping_mall_ai_backend_inquiry_replies shopping_mall_ai_backend_inquiry_replies[]
+  shopping_mall_ai_backend_inquiry_abuse_reports shopping_mall_ai_backend_inquiry_abuse_reports[]
+  shopping_mall_ai_backend_favorites shopping_mall_ai_backend_favorites[]
+  shopping_mall_ai_backend_favorite_addresses shopping_mall_ai_backend_favorite_addresses[]
+  shopping_mall_ai_backend_favorite_folders shopping_mall_ai_backend_favorite_folders[]
+  shopping_mall_ai_backend_article_comments shopping_mall_ai_backend_article_comments[]
   
   @@unique([email])
+  @@unique([phone_number])
   @@index([created_at])
+  @@index([is_active, is_verified])
+  @@index([nickname(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// Permission/role definition entity - Implements fine-grained and role-based permission requirements for sellers and administrators. Enables maintainable, extendable, reusable access control lists. Maintains full normalization; only the permission identity and description live here. Example: support admin, super admin, seller-inventory. Used as assignment in admin and seller models. Special behaviors: If altered, triggers audit trail. Relationship: referenced by administrator or seller for role mapping.
+/// Historical log of customer withdrawal and account deactivation events,
+/// preserving evidence and regulatory compliance data. Each record acts as a
+/// snapshot of the state and rationale when the customer initiated or
+/// completed withdrawal.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_permissions {
+model shopping_mall_ai_backend_customer_withdrawals {
   //----
   // COLUMNS
   //----
   /// Primary Key.
-  id String @id
+  id String @id @db.Uuid
   
-  /// Unique code or name for this permission/role (e.g., super_admin, seller_product_manager). Implements unique constraint for RBAC mapping. Maintains normalization; referenced only as foreign key.
-  name String
+  /// Belonged customer's {@link shopping_mall_ai_backend_customers.id}.
+  customer_id String @db.Uuid
   
-  /// Display name for UI/analytics. Used on dashboards. Not necessarily unique. Maintained separately from permission code for localization/flexibility.
-  display_name String
+  /// Customer provided reason for withdrawal or deactivation.
+  reason String?
   
-  /// Detailed explanation of what this permission grants. Used for system documentation, admin UX. Maintains atomicity by avoiding embedded business logic.
-  description String
+  /// Timestamp when withdrawal/deactivation was completed.
+  withdrawn_at DateTime @db.Timestamptz
   
-  /// Permission definition created timestamp. Used for audit trail and change tracking.
-  created_at DateTime
+  /// Timestamp of record creation for evidence.
+  created_at DateTime @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  aimall_backend_administrators aimall_backend_administrators[]
+  customer shopping_mall_ai_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
   
-  @@unique([name])
+  @@index([customer_id])
 }
 
-/// External identity account link - Implements federated login/OAuth requirements by tracking external provider identities (Google, Kakao, Apple, etc.) linked to primary AIMall customer accounts. Maintains strict normalization: all external linkage data is atomic and sits in this model, referenced from customers. Example: Single customer, multiple federated logins. Relationships: FK to aimall_backend_customers. Special behaviors: If deleted, only impacts authentications via provider.
+/// Tracks all active or historical customer session records, used for
+/// authentication, fraud investigation, and multi-device login support.
+/// Manages session tokens, IP, device, and expiration for each authenticated
+/// interaction.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_external_accounts {
+model shopping_mall_ai_backend_customer_sessions {
   //----
   // COLUMNS
   //----
   /// Primary Key.
-  id String @id
+  id String @id @db.Uuid
   
-  /// Belonged customer’s {@link aimall_backend_customers.id}. Links this external account to the internal primary customer.
-  customer_id String
+  /// Belonged customer's {@link shopping_mall_ai_backend_customers.id}.
+  customer_id String @db.Uuid
   
-  /// Identity provider code (e.g., google, kakao, apple). Enforces normalized provider codes for robust branching and validation. For example: login flow decision logic. Critical for OAuth mapping.
+  /// Session's access token for API authentication.
+  access_token String
+  
+  /// Token used to renew the session without re-authentication.
+  refresh_token String?
+  
+  /// IP address from which the session originated.
+  ip_address String
+  
+  /// Browser or device user agent string for context and fraud monitoring.
+  user_agent String
+  
+  /// Session expiry datetime (based on system policy).
+  expires_at DateTime @db.Timestamptz
+  
+  /// Session creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp of explicit session logout or forced termination.
+  terminated_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_ai_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_ai_backend_carts shopping_mall_ai_backend_carts[]
+  
+  @@unique([access_token])
+  @@index([customer_id])
+  @@index([expires_at])
+}
+
+/// Links customer accounts to external identity providers such as
+/// OAuth/Social logins. Enables SSO, mapping, and external account
+/// management, ensuring business audit trail for all mappings.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_customer_external_identities {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Belonged customer's {@link shopping_mall_ai_backend_customers.id}.
+  customer_id String @db.Uuid
+  
+  /// External identity provider name (e.g., google, apple, naver, kakao).
   provider String
   
-  /// External provider’s user ID string. Used to correlate federated identities. Example: store Google sub or Kakao id. Always atomic and never repeated.
-  external_user_id String
+  /// Unique external key/id provided by the external provider for this
+  /// customer.
+  provider_key String
   
-  /// Timestamp of account linkage. Enables audit trail for identity events. Used for UX (showing when account was linked).
-  linked_at DateTime
+  /// Timestamp when this identity mapping was created.
+  linked_at DateTime @db.Timestamptz
+  
+  /// Timestamp of last verified sign-in with this external provider.
+  last_verified_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  external_account_customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  customer shopping_mall_ai_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade, map: "shopping_mall_ai_backend_customer_external_identities__695ddaff")
   
-  @@unique([provider, external_user_id])
-  @@index([customer_id])
+  @@unique([provider, provider_key], map: "shopping_mall_ai_backend_customer_external_identities__7be59c46")
+  @@index([customer_id], map: "shopping_mall_ai_backend_customer_external_identities__c0cd5f8c")
 }
 
-/// Per-customer behavioral tracking - Implements the session/activity tracking requirement. Stores API-driven customer events, preferences, and actions for AI, analytics, compliance. Ensures 3NF by isolating behavioral actions from static identity data. Example usage: shopping session event logs, personalization input. Relationship: links to customer. Special behaviors: May be periodically purged/anonymized for compliance. Used only for analytics/AIOps, never for business-critical identities.
+/// Seller (merchant) account entity, representing approved business users
+/// authorized to register, sell, and fulfill orders. Stores identity
+/// verification, business credentials, and current seller status.
+/// Independent management, onboarding, and compliance attributes are
+/// maintained per seller.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_behavior_trackings {
+model shopping_mall_ai_backend_sellers {
   //----
   // COLUMNS
   //----
   /// Primary Key.
-  id String @id
+  id String @id @db.Uuid
   
-  /// Related customer’s {@link aimall_backend_customers.id}. Logs which customer generated the behavior.
-  customer_id String
+  /// Seller's primary business email address used for registration and
+  /// notifications. Unique per seller.
+  email String
   
-  /// What user activity/event is being tracked (e.g., login, view_product, add_cart, checkout, search, recommend_click). Implements event-type requirement. Kept atomic as string code; normalization enforced. Used in analytics pipeline for behavior modeling.
-  event_type String
+  /// Seller's registered business identifier (regional/country standard
+  /// number).
+  business_registration_number String
   
-  /// Serialized payload describing the event more fully (JSON or similar). Contains atomic data, avoids schema transitive dependency. For example: product IDs, referer, AB test cohort.
-  event_data String
+  /// Legal business name of seller (business entity).
+  name String
   
-  /// Timestamp the event was logged. Implements audit and analytics timing. Used in analytics; always atomic.
-  occurred_at DateTime
+  /// Whether seller identity/business verification is complete and approved.
+  is_verified Boolean
+  
+  /// Whether seller account is currently active and able to operate.
+  is_active Boolean
+  
+  /// Timestamp when the seller account was created.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp when the seller account was last updated.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp (for closed or withdrawn sellers).
+  deleted_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  behavior_tracking_customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  shopping_mall_ai_backend_seller_verifications shopping_mall_ai_backend_seller_verifications[]
+  shopping_mall_ai_backend_seller_profiles shopping_mall_ai_backend_seller_profiles?
+  shopping_mall_ai_backend_seller_settlements shopping_mall_ai_backend_seller_settlements?
+  shopping_mall_ai_backend_orders shopping_mall_ai_backend_orders[]
+  shopping_mall_ai_backend_coupons shopping_mall_ai_backend_coupons[]
+  shopping_mall_ai_backend_deposits shopping_mall_ai_backend_deposits?
+  shopping_mall_ai_backend_deposit_transactions shopping_mall_ai_backend_deposit_transactions[]
+  shopping_mall_ai_backend_mileages shopping_mall_ai_backend_mileages?
+  shopping_mall_ai_backend_mileage_transactions shopping_mall_ai_backend_mileage_transactions[]
+  shopping_mall_ai_backend_coins shopping_mall_ai_backend_coins?
+  shopping_mall_ai_backend_coin_transactions shopping_mall_ai_backend_coin_transactions[]
+  shopping_mall_ai_backend_financial_incidents shopping_mall_ai_backend_financial_incidents[]
+  shopping_mall_ai_backend_inquiries shopping_mall_ai_backend_inquiries[]
+  shopping_mall_ai_backend_inquiry_replies shopping_mall_ai_backend_inquiry_replies[]
   
-  @@index([customer_id, occurred_at])
+  @@unique([email])
+  @@unique([business_registration_number], map: "shopping_mall_ai_backend_sellers_business_registration_330d2da3")
+  @@index([created_at])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-/// Customer delivery addresses - Implements the address management requirement, storing normalized and per-customer-linked delivery location data. Ensures all address data is atomic (split lines, etc) in full compliance with 3NF. Used for checkout, shipments, address book UX. Relationships: links customer. Special behaviors: Customers can have multiple addresses, with optional default flag. Deletion disables only for this customer.
+/// Certification, KYB/KYC evidence and verification records related to
+/// seller onboarding or periodic compliance checks. Each record links to a
+/// seller and includes validation documents, scope, and approval outcomes.
+/// Managed only as per business policy and immutable history.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model aimall_backend_addresses {
+model shopping_mall_ai_backend_seller_verifications {
   //----
   // COLUMNS
   //----
   /// Primary Key.
-  id String @id
+  id String @id @db.Uuid
   
-  /// Owner customer’s {@link aimall_backend_customers.id}. Allows associating multiple addresses per account, and enables easy lookup for checkout flows and address book UX.
-  customer_id String
+  /// Belonged seller's {@link shopping_mall_ai_backend_sellers.id}.
+  seller_id String @db.Uuid
   
-  /// User-defined label for quick selection (e.g., 'Home', 'Office'). Implements per-customer usability. Fully atomic; not duplicated across tables. Used in address picker UX.
-  alias String
+  /// Type of business verification (e.g., identity, business_license,
+  /// bank_account, AML, KYC).
+  verification_type String
   
-  /// Address recipient name (can differ from customer profile). Fulfills logistics requirement. Used when generating shipping labels. Always atomic.
-  recipient_name String
+  /// Current status (submitted, approved, rejected, expired, pending).
+  /// Reflects compliance policy workflow.
+  status String
   
-  /// Phone number for this address/recipient. Meets delivery carrier and communication needs. Fully atomic.
-  phone String
+  /// Secure URI to evidence document or file. Points to uploaded file or
+  /// reference directory.
+  document_uri String @db.VarChar(80000)
   
-  /// Main line of street address/location. Split for normalization; no embedded logic. Used in shipping and verification.
-  address_line1 String
+  /// Timestamp when verification document was submitted.
+  submitted_at DateTime @db.Timestamptz
   
-  /// Second line (optional, e.g., apartment/suite). Split for normalization; not duplicated. Optional for UX.
-  address_line2 String?
-  
-  /// City of the address. Used for logistics analysis; atomic for filtering/aggregation.
-  city String
-  
-  /// Postal/ZIP code. Maintains normalization, index for geo lookup.
-  postal_code String
-  
-  /// Country code or name. Normalized string for international handling; used for compliance/shipping.
-  country String
-  
-  /// True if this is the primary/default address for the customer. Implements default selection UX. Only one per customer can be true. Constraint enforced by application logic.
-  is_default Boolean
-  
-  /// When this address was last modified. Used for audit trail and UX.
-  updated_at DateTime
+  /// Timestamp when verification was approved (if successful).
+  verified_at DateTime? @db.Timestamptz
   
   //----
   // RELATIONS
   //----
-  address_customer aimall_backend_customers @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_ai_backend_sellers @relation(fields: [seller_id], references: [id], onDelete: Cascade)
   
-  aimall_backend_orders aimall_backend_orders[]
-  aimall_backend_shipments aimall_backend_shipments[]
+  @@index([seller_id])
+  @@index([status])
+}
+
+/// Additional seller/business profile details, linked 1:1 to sellers.
+/// Includes optional and extended info, business contact, and public display
+/// settings. Managed through seller profile UI or admin.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_seller_profiles {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
   
-  @@index([customer_id])
+  /// Belonged seller's {@link shopping_mall_ai_backend_sellers.id}.
+  seller_id String @db.Uuid
+  
+  /// Seller's public display name/brand (may be different from legal name).
+  display_name String?
+  
+  /// Primary contact phone for business operations.
+  contact_phone String?
+  
+  /// Business or support contact email.
+  contact_email String?
+  
+  /// Business registered address (for display or compliance use).
+  address String?
+  
+  /// Self-description or introductory text for the seller shop page.
+  description String?
+  
+  /// Timestamp when the profile was created.
+  created_at DateTime @db.Timestamptz
+  
+  /// Profile update timestamp.
+  updated_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  seller shopping_mall_ai_backend_sellers @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  
+  @@unique([seller_id])
+  @@index([display_name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Records of settlement configuration and payout instructions for each
+/// seller, used in financial processing and disbursement. Includes payout
+/// method, bank details, and account/recipient info per seller. Supports
+/// settlement changes and audit trail.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_seller_settlements {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Belonged seller's {@link shopping_mall_ai_backend_sellers.id}.
+  seller_id String @db.Uuid
+  
+  /// Bank or financial institution name for disbursement.
+  bank_name String
+  
+  /// Account number for payout.
+  bank_account_number String
+  
+  /// Name of the registered account holder for settlements.
+  account_holder String
+  
+  /// Optional memo or note field for settlement purposes.
+  remittance_memo String?
+  
+  /// Settlement configuration creation timestamp.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp of last update to settlement info.
+  updated_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  seller shopping_mall_ai_backend_sellers @relation(fields: [seller_id], references: [id], onDelete: Cascade)
+  
+  @@unique([seller_id])
+  @@index([bank_account_number], map: "shopping_mall_ai_backend_seller_settlements_bank_accou_3e3984c4")
+}
+
+/// Administrator account for platform operators, regulatory personnel, and
+/// business rule enforcement. Each admin manages business policies, audits,
+/// and incidents. Supports multi-factor auth, credential lifecycle, and
+/// status management.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_admins {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Unique admin username or operator ID (must be unique).
+  username String
+  
+  /// Hashed administrator password for auth, never stored as cleartext.
+  password_hash String
+  
+  /// Administrator's real name for traceability.
+  name String
+  
+  /// Administrator business email address (unique per admin).
+  email String
+  
+  /// Verified contact for admin (SMS/phone notification, account recovery).
+  phone_number String?
+  
+  /// Whether this admin account is currently enabled.
+  is_active Boolean
+  
+  /// Time of last successful login. Used for audit trail and activity
+  /// monitoring.
+  last_login_at DateTime? @db.Timestamptz
+  
+  /// Timestamp of admin account creation.
+  created_at DateTime @db.Timestamptz
+  
+  /// Timestamp of last admin record update.
+  updated_at DateTime @db.Timestamptz
+  
+  /// Soft deletion timestamp (retained for audit compliance).
+  deleted_at DateTime? @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  shopping_mall_ai_backend_admin_audit_logs shopping_mall_ai_backend_admin_audit_logs[]
+  shopping_mall_ai_backend_role_escalations shopping_mall_ai_backend_role_escalations[]
+  shopping_mall_ai_backend_coupon_snapshots shopping_mall_ai_backend_coupon_snapshots[]
+  shopping_mall_ai_backend_inquiry_abuse_reports shopping_mall_ai_backend_inquiry_abuse_reports[]
+  shopping_mall_ai_backend_inquiry_moderation_events shopping_mall_ai_backend_inquiry_moderation_events[]
+  shopping_mall_ai_backend_inquiry_faq_suggestions shopping_mall_ai_backend_inquiry_faq_suggestions[]
+  shopping_mall_ai_backend_article_snapshots shopping_mall_ai_backend_article_snapshots[]
+  shopping_mall_ai_backend_article_moderation_logs shopping_mall_ai_backend_article_moderation_logs[]
+  
+  @@unique([username])
+  @@unique([email])
+  @@index([created_at])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Business and system audit log of all privileged admin actions. Captures
+/// admin reference, operation performed, rationale, and affected
+/// target/count. Immutable record for compliance and forensic review by
+/// regulators.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_admin_audit_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// Admin account's {@link shopping_mall_ai_backend_admins.id}.
+  admin_id String @db.Uuid
+  
+  /// Type of privileged operation (e.g., approve_seller, suspend_user,
+  /// modify_config, access_evidence).
+  operation String
+  
+  /// Primary identifier of the entity affected by this operation (for audit
+  /// linkage).
+  target_id String @db.Uuid
+  
+  /// Type of entity affected (e.g., customer, seller, system, order, config).
+  target_type String
+  
+  /// Detailed description or justification for the operation.
+  description String?
+  
+  /// Timestamp when the audit log entry was created.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_ai_backend_admins @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([admin_id])
+  @@index([created_at])
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+/// Snapshot entity capturing user membership/seller/admin role change and
+/// escalation events. Used for regulatory audit, approval workflows, and
+/// business process replays. Each record describes role transition, outcome,
+/// and rationale, with references to relevant user/admin.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_ai_backend_role_escalations {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id @db.Uuid
+  
+  /// ID of the user whose role was escalated/deescalated (references customer,
+  /// seller, or admin - cross-reference by context).
+  user_id String @db.Uuid
+  
+  /// Administrator who approved/escalated role (references {@link
+  /// shopping_mall_ai_backend_admins.id}).
+  admin_id String? @db.Uuid
+  
+  /// Previous business role (e.g., customer, seller, admin, suspended, guest).
+  from_role String
+  
+  /// Resulting business role after escalation/transition.
+  to_role String
+  
+  /// Type of change (e.g., promotion, demotion, temporary, permanent,
+  /// approval, rejection).
+  escalation_type String
+  
+  /// Optional human-readable rationale or system justification for the
+  /// escalation.
+  reason String?
+  
+  /// Time the escalation event was recorded.
+  created_at DateTime @db.Timestamptz
+  
+  //----
+  // RELATIONS
+  //----
+  user shopping_mall_ai_backend_customers @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  admin shopping_mall_ai_backend_admins? @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  @@index([admin_id])
 }

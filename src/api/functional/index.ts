@@ -1,1 +1,2 @@
-export * as aimall_backend from "./aimall_backend";
+export * as auth from "./auth";
+export * as shoppingMallAiBackend from "./shoppingMallAiBackend";

@@ -1,9 +1,0 @@
-export * as customers from "./customers";
-export * as categories from "./categories";
-export * as posts from "./posts";
-export * as comments from "./comments";
-export * as reviews from "./reviews";
-export * as carts from "./carts";
-export * as orders from "./orders";
-export * as coupons from "./coupons";
-export * as supportTickets from "./supportTickets";
