@@ -1,0 +1,364 @@
+/// Central master table for tags used in product, inquiry, and discovery
+/// modules. Stores tag identity, status, registration source, and business
+/// context. Managed by admins and sellers, linked to moderation and product
+/// tag junctions. Accessible in tagging flows, analytics, and recommendation
+/// evidence.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_tags {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// The unique tag label shown to users and used for search. Alphanumeric,
+  /// case-insensitive and globally unique.
+  name String
+  
+  /// Business/contextual description for moderation and analytics. May be
+  /// blank or short.
+  description String?
+  
+  /// Current tag status: 'active', 'under_review', 'suspended', 'deleted'.
+  /// Used for moderation/business logic.
+  status String
+  
+  /// Tag creation timestamp.
+  created_at DateTime
+  
+  /// Last updated timestamp.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  ai_commerce_tag_moderation ai_commerce_tag_moderation[]
+  ai_commerce_product_tags ai_commerce_product_tags[]
+  
+  @@unique([name])
+  @@index([status])
+  @@index([created_at])
+  @@index([updated_at])
+}
+
+/// Moderation logs and actions related to tags. Subsidiary to
+/// ai_commerce_tags. Stores moderation decision, actor, timestamp, and
+/// rationale. Enables audit trail for tag changes and evidence for admin
+/// interventions.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_tag_moderation {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Associated tag's {@link ai_commerce_tags.id}.
+  ai_commerce_tag_id String
+  
+  /// Type of moderation taken: 'approve', 'reject', 'flag', 'suspend'.
+  moderation_action String
+  
+  /// Moderator's admin user id {@link ai_commerce_admin.id}.
+  moderated_by String
+  
+  /// Freeform reason or notes for the moderation action.
+  moderation_reason String?
+  
+  /// Moderation record creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  tag ai_commerce_tags @relation(fields: [ai_commerce_tag_id], references: [id], onDelete: Cascade)
+  
+  @@index([ai_commerce_tag_id, created_at])
+  @@index([moderated_by])
+}
+
+/// Junction table linking products and tags, enabling M:N relationship
+/// between ai_commerce_products and ai_commerce_tags. Each row represents a
+/// tagging event, enabling product search and discovery. Does not store
+/// denormalized product or tag info, normalized to 3NF. Business operations
+/// include adding, removing, and searching product tags.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_product_tags {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Target product's {@link ai_commerce_products.id}.
+  ai_commerce_product_id String
+  
+  /// Target tag's {@link ai_commerce_tags.id}.
+  ai_commerce_tag_id String
+  
+  /// Time tag was applied to product.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  product ai_commerce_products @relation(fields: [ai_commerce_product_id], references: [id], onDelete: Cascade)
+  tag ai_commerce_tags @relation(fields: [ai_commerce_tag_id], references: [id], onDelete: Cascade)
+  
+  @@unique([ai_commerce_product_id, ai_commerce_tag_id], map: "ai_commerce_product_tags_ai_commerce_product_id_ai_com_9e289063")
+  @@index([ai_commerce_product_id])
+  @@index([ai_commerce_tag_id])
+}
+
+/// Tracks products flagged as trending via analytics, sales, or manual
+/// override, supporting dynamic discovery/rankings. Serves as a primary
+/// table due to business need for direct curation, search, and trend audit.
+/// Distinct from highlight (temporary/manual), this table is for trending
+/// (dynamic, analytics-led) status.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_trending_products {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Target product's {@link ai_commerce_products.id}.
+  ai_commerce_product_id String
+  
+  /// Score/value used to compute trending status, supports real-time analytics
+  /// and ordering.
+  analytics_score Float
+  
+  /// Whether entry was manually set as trending/overridden by an admin.
+  is_manual_override Boolean
+  
+  /// Timestamp when product was first flagged as trending.
+  created_at DateTime
+  
+  /// Timestamp of last trend status update (analytics/manual).
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  product ai_commerce_products @relation(fields: [ai_commerce_product_id], references: [id], onDelete: Cascade)
+  
+  @@unique([ai_commerce_product_id])
+  @@index([analytics_score, created_at])
+}
+
+/// Table for products highlighted by manual curation
+/// (admin/seller-controlled) for special visibility in discovery flows.
+/// Distinct from trending, this business-entity allows scheduled highlights
+/// and business campaign tracking. Direct business operations (CRUD)
+/// required for admin/seller teams.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_highlighted_products {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Product being highlighted, FK to {@link ai_commerce_products.id}.
+  ai_commerce_product_id String
+  
+  /// ID of admin/seller who performed the highlight {@link
+  /// ai_commerce_seller.id} or {@link ai_commerce_admin.id}.
+  highlighted_by String
+  
+  /// Timestamp highlighting begins (scheduled).
+  highlight_start_at DateTime
+  
+  /// Timestamp highlighting ends (scheduled, may be null if indefinite).
+  highlight_end_at DateTime?
+  
+  /// Business reason/notes for highlighting, analytic support.
+  reason String?
+  
+  /// Creation timestamp.
+  created_at DateTime
+  
+  /// Last update timestamp.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  product ai_commerce_products @relation(fields: [ai_commerce_product_id], references: [id], onDelete: Cascade)
+  highlightedBy ai_commerce_seller @relation(fields: [highlighted_by], references: [id], onDelete: Cascade)
+  
+  @@unique([ai_commerce_product_id, highlight_start_at], map: "ai_commerce_highlighted_products_ai_commerce_product_i_ee33c82d")
+  @@index([highlight_start_at, highlight_end_at], map: "ai_commerce_highlighted_products_highlight_start_at_hi_2f85c5f2")
+  @@index([highlighted_by])
+}
+
+/// Records all user and session search actions for personalized discovery
+/// and AI analytics. Each record stores query, user/session context,
+/// filters, results, and device/locale metadata. Supports cross-channel
+/// experimentation, audit, and trend analysis.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_search_histories {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Buyer user FK {@link ai_commerce_buyer.id}; may be null for
+  /// anonymous/guest searches.
+  ai_commerce_buyer_id String?
+  
+  /// Full user-entered query string. Used for analytics and personal search
+  /// recall.
+  query_string String
+  
+  /// JSON-encoded array/object of filters (categories, price, etc) used in
+  /// search.
+  filters_applied String?
+  
+  /// Number of results returned from search.
+  result_count Int
+  
+  /// Timestamp of search execution.
+  search_timestamp DateTime
+  
+  /// Locale/device language/region at search time.
+  locale String?
+  
+  //----
+  // RELATIONS
+  //----
+  buyer ai_commerce_buyer? @relation(fields: [ai_commerce_buyer_id], references: [id], onDelete: Cascade)
+  
+  @@index([search_timestamp])
+  @@index([ai_commerce_buyer_id, search_timestamp], map: "ai_commerce_search_histories_ai_commerce_buyer_id_sear_e832f11a")
+}
+
+/// Aggregated analytics and statistics for search operations (keyword
+/// frequency, filter usage, search performance). Used for backend
+/// dashboards, diagnostics, and AI learning. Trends/aggregates may be
+/// recomputed/updated. Not for per-user search recall, but for
+/// platform-level or admin insights.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_search_analytics {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Aggregation granularity (e.g., keyword, filter, date).
+  aggregation_key String
+  
+  /// Value for this aggregation (e.g., 'laptop', '{"category":"shoes"}',
+  /// '2024-06-01').
+  aggregation_value String
+  
+  /// Number of searches matching this aggregation.
+  search_count Int
+  
+  /// Sum of search results for this aggregation.
+  result_total Int
+  
+  /// Start of analytic calculation period.
+  analyzed_period_start DateTime
+  
+  /// End of analytic calculation period.
+  analyzed_period_end DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  @@unique([aggregation_key, aggregation_value, analyzed_period_start], map: "ai_commerce_search_analytics_aggregation_key_aggregati_fa4a856a")
+}
+
+/// Point-in-time record of product recommendation lists given to users,
+/// including recommendations, context, and computed rank/reason for
+/// evidence. Powers audit and reproducibility of AI recommendations. Used
+/// for compliance and personalization audits.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_recommendation_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// The buyer who received the recommendations {@link ai_commerce_buyer.id}.
+  ai_commerce_buyer_id String
+  
+  /// When the snapshot/recommendation was generated.
+  snapshot_timestamp DateTime
+  
+  /// JSON-encoded list/array of recommended products (with computed
+  /// scores/order, enough for audit).
+  recommendations_data String
+  
+  /// JSON-encoded context for the recommendation (recent searches, session
+  /// data, etc).
+  context_data String?
+  
+  //----
+  // RELATIONS
+  //----
+  buyer ai_commerce_buyer @relation(fields: [ai_commerce_buyer_id], references: [id], onDelete: Cascade)
+  
+  @@unique([ai_commerce_buyer_id, snapshot_timestamp], map: "ai_commerce_recommendation_snapshots_ai_commerce_buyer_ad089a2b")
+}
+
+/// Snapshot-based audit trail of all major discovery subsystem events (tag
+/// curation, highlight/trending changes, important AI interventions). Powers
+/// platform-wide evidence, compliance, and traceability for discovery
+/// operations without polluting base product tables. Rarely updated/deleted
+/// outside of compliance flows.
+///
+/// @namespace Discovery
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_audit_logs_discovery {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to user/admin/worker who performed action. May reference
+  /// ai_commerce_buyer, ai_commerce_seller, or ai_commerce_admin depending on
+  /// source.
+  actor_id String
+  
+  /// Nature/type of discovery audit event (e.g., 'tag_create',
+  /// 'highlight_update', 'recommendation_decision').
+  event_type String
+  
+  /// JSON-encoded details of what was changed/acted, sufficient for audit
+  /// trail.
+  event_details String
+  
+  /// Timestamp for event occurrence.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  actor ai_commerce_admin @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+  
+  @@index([actor_id, created_at])
+}

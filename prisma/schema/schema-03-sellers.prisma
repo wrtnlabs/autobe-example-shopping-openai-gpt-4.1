@@ -1,0 +1,574 @@
+/// Captures the onboarding process for sellers, including application
+/// submission, current onboarding step/stage, status, and references to the
+/// user and target store being created. Integral for compliance, step
+/// tracking, and escalations. Links to ai_commerce_seller_kyc and
+/// ai_commerce_seller_profiles. Each onboarding record represents a seller's
+/// complete onboarding lifecycle.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_seller_onboarding {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged user account's {@link ai_commerce_user_authentications.id}.
+  /// Represents the user applying to become a seller.
+  user_id String
+  
+  /// Store created upon onboarding's {@link ai_commerce_stores.id}.
+  store_id String?
+  
+  /// JSON-encoded application details, disclosures, and supporting
+  /// documentation for the onboarding process.
+  application_data String
+  
+  /// Current onboarding status (e.g., draft, submitted, reviewing, approved,
+  /// rejected, escalated).
+  onboarding_status String
+  
+  /// Current stage of the onboarding process (e.g., identity_verification,
+  /// business_submission, bank_verification).
+  current_stage String?
+  
+  /// Admin or system notes regarding this onboarding case, for compliance or
+  /// review usage.
+  notes String?
+  
+  /// Onboarding initiation timestamp.
+  created_at DateTime
+  
+  /// Last update time for onboarding record.
+  updated_at DateTime
+  
+  /// Soft delete timestamp. Null if active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  user ai_commerce_user_authentications @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  store ai_commerce_stores? @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  
+  ai_commerce_seller_kyc ai_commerce_seller_kyc[]
+  
+  @@index([store_id])
+  
+  @@unique([user_id])
+  @@index([onboarding_status])
+  @@index([created_at])
+}
+
+/// Stores Know Your Customer (KYC) compliance information for sellers during
+/// onboarding and later operations. Contains references to the user,
+/// document verification metadata, status, and audit trail fields for
+/// compliance review and fraud detection.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_seller_kyc {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// User's {@link ai_commerce_user_authentications.id} that the KYC applies
+  /// to.
+  user_id String
+  
+  /// Related onboarding application's {@link ai_commerce_seller_onboarding.id}.
+  onboarding_id String
+  
+  /// KYC workflow current status (awaiting_submission, pending, verified,
+  /// rejected, escalated).
+  kyc_status String
+  
+  /// Type of documented provided for verification (e.g., passport,
+  /// business_license, driver_license).
+  document_type String?
+  
+  /// Relevant details or parsed info from the submitted document, typically
+  /// JSON-encoded.
+  document_metadata String?
+  
+  /// Review, escalation or rejection notes produced by compliance staff or AI
+  /// system.
+  verification_notes String?
+  
+  /// KYC submission timestamp.
+  created_at DateTime
+  
+  /// Last update time.
+  updated_at DateTime
+  
+  /// Soft delete timestamp. Null if active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  user ai_commerce_user_authentications @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  onboarding ai_commerce_seller_onboarding @relation(fields: [onboarding_id], references: [id], onDelete: Cascade)
+  
+  @@index([onboarding_id])
+  
+  @@index([user_id, kyc_status])
+}
+
+/// Holds the seller's public and private profile information once onboarding
+/// is complete and the account is approved. Links to the main user and,
+/// optionally, to a default store. Used for display, search, analytic, and
+/// role-based workflow. Editable by sellers and admins with full
+/// update/audit trail.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_seller_profiles {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// User's {@link ai_commerce_user_authentications.id} who owns this seller
+  /// profile.
+  user_id String
+  
+  /// Name shown on storefronts and in analytics for this seller.
+  display_name String
+  
+  /// JSON snapshot of seller's business description, branding info, and
+  /// regulatory disclosures for compliance.
+  profile_metadata String?
+  
+  /// Approval/workflow status (active, pending, suspended, terminated).
+  approval_status String
+  
+  /// If suspended/terminated, main reason or justification as determined by
+  /// platform/admin.
+  suspension_reason String?
+  
+  /// Profile creation timestamp.
+  created_at DateTime
+  
+  /// Profile last update time.
+  updated_at DateTime
+  
+  /// Soft delete timestamp. Null if active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  user ai_commerce_user_authentications @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  ai_commerce_stores ai_commerce_stores[]
+  ai_commerce_seller_status_history ai_commerce_seller_status_history[]
+  ai_commerce_seller_appeals ai_commerce_seller_appeals[]
+  ai_commerce_seller_disputes ai_commerce_seller_disputes[]
+  ai_commerce_audit_logs_seller ai_commerce_audit_logs_seller[]
+  
+  @@unique([user_id])
+  @@index([display_name])
+}
+
+/// Primary table representing individual stores (managed by sellers) with
+/// unique branding, policies, and compliance details. Each store is tied to
+/// a seller profile/user and forms the central entity for seller-related
+/// transactions, products, and marketing analytics. Includes references to
+/// store settings and banking info.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_stores {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// User's {@link ai_commerce_user_authentications.id} who owns/administers
+  /// this store.
+  owner_user_id String
+  
+  /// Seller profile {@link ai_commerce_seller_profiles.id} for this store.
+  seller_profile_id String
+  
+  /// Store's public-facing name.
+  store_name String
+  
+  /// Unique business code or internal store identifier. Used for
+  /// admin/marketing/audit.
+  store_code String
+  
+  /// Business profile, description, and configuration JSON blob for
+  /// extensibility.
+  store_metadata String?
+  
+  /// Workflow status (active, pending, suspended, closed, terminated).
+  approval_status String
+  
+  /// When closed/terminated, provides summary or justification for
+  /// history/legal tracking.
+  closure_reason String?
+  
+  /// Creation time for store.
+  created_at DateTime
+  
+  /// Last store update time.
+  updated_at DateTime
+  
+  /// Soft delete timestamp. Null if active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  owner ai_commerce_user_authentications @relation(fields: [owner_user_id], references: [id], onDelete: Cascade)
+  sellerProfile ai_commerce_seller_profiles @relation(fields: [seller_profile_id], references: [id], onDelete: Cascade)
+  
+  ai_commerce_seller_onboarding ai_commerce_seller_onboarding[]
+  ai_commerce_store_settings ai_commerce_store_settings[]
+  ai_commerce_store_analytics ai_commerce_store_analytics[]
+  ai_commerce_store_banking ai_commerce_store_banking?
+  ai_commerce_products ai_commerce_products[]
+  ai_commerce_carts ai_commerce_carts[]
+  ai_commerce_cart_templates ai_commerce_cart_templates[]
+  
+  @@index([owner_user_id])
+  @@index([seller_profile_id])
+  
+  @@unique([store_code])
+  @@index([store_name, approval_status])
+}
+
+/// Configuration and business rules for each store including shipping
+/// policies, return/holiday hours, custom rules, and integration flags.
+/// One-to-one or one-to-many with stores. Managed by sellers or admins with
+/// audit trail and workflow.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_store_settings {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Store's {@link ai_commerce_stores.id} to whom these settings apply.
+  store_id String
+  
+  /// Store's settings as a JSON blob; includes shipping, return, hours, etc.
+  settings_json String
+  
+  /// If true, these settings are in use (for multiversion/config scenarios).
+  active Boolean
+  
+  /// Creation timestamp for settings version.
+  created_at DateTime
+  
+  /// Last update time for settings version.
+  updated_at DateTime
+  
+  /// Soft delete timestamp. Null if active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  store ai_commerce_stores @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  
+  @@unique([store_id, active])
+}
+
+/// Aggregated analytics/statistics for a given store, including sales
+/// volume, conversion rate, product/visitor metrics. Enables sellers/admins
+/// to monitor performance and drive business insight. Updated periodically
+/// (never realtime accuracy).
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_store_analytics {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Store's {@link ai_commerce_stores.id} whose metrics these belong to.
+  store_id String
+  
+  /// Which period (day/week/month) this record reflects; may be midnight of
+  /// period or other agreed point.
+  date_bucket DateTime
+  
+  /// Total sales revenue for this period.
+  sales_volume Float
+  
+  /// Total fulfilled orders during this analytics bucket.
+  orders_count Int
+  
+  /// Unique store visitors during period.
+  visitors_count Int
+  
+  /// Conversion rate for tracked period (0-1.0).
+  conversion_rate Float
+  
+  /// Extra analytics, campaign metadata, or experimental fields (stored as
+  /// JSON).
+  analytics_json String?
+  
+  /// Analytics record creation.
+  created_at DateTime
+  
+  /// Analytics record last update.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  store ai_commerce_stores @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  
+  @@unique([store_id, date_bucket])
+  @@index([conversion_rate])
+}
+
+/// Confidential banking and payout details for each store, connecting to
+/// payment and compliance systems. Each record references a store and
+/// maintains the current payout/banking configuration (bank name, account,
+/// routing, policies). Must be editable and versionable, with compliance
+/// fields for auditability.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_store_banking {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Store's {@link ai_commerce_stores.id} whose banking info is configured.
+  store_id String
+  
+  /// Legal bank or payment provider name.
+  bank_name String
+  
+  /// Bank or payment account number for payouts.
+  account_number String
+  
+  /// Name as appears on account for verification.
+  account_holder_name String
+  
+  /// Bank routing/transit/SWIFT code (if applicable, for international/wire).
+  routing_code String?
+  
+  /// Additional compliance info or bank config JSON-encoded.
+  banking_metadata String?
+  
+  /// If true, banking/payout account has passed platform admin/AI verification
+  /// (required for payout).
+  verified Boolean
+  
+  /// Payout info creation timestamp.
+  created_at DateTime
+  
+  /// Banking last update.
+  updated_at DateTime
+  
+  /// Soft delete timestamp. Null if active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  store ai_commerce_stores @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  
+  @@unique([store_id])
+}
+
+/// Chronological log of every status or role change for a given
+/// seller—covering onboarding, approval, suspension, demotion, appeals, and
+/// escalations. Used for audit, compliance, and temporal traceability.
+/// Usually linked to ai_commerce_seller_profiles and/or onboarding record.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_seller_status_history {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// User's {@link ai_commerce_user_authentications.id} involved in the status
+  /// change.
+  user_id String
+  
+  /// Seller profile's {@link ai_commerce_seller_profiles.id} whose status
+  /// changed (if applicable).
+  seller_profile_id String?
+  
+  /// Seller's previous role or approval status value.
+  previous_status String?
+  
+  /// Status after this transition/approval/role event.
+  new_status String
+  
+  /// Summary or commentary on the reason for status change—decision, evidence,
+  /// escalation case.
+  transition_reason String?
+  
+  /// Indicates system, AI, or admin staff principal driving the change.
+  transition_actor String
+  
+  /// Status transition timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  user ai_commerce_user_authentications @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  sellerProfile ai_commerce_seller_profiles? @relation(fields: [seller_profile_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  
+  @@index([seller_profile_id, created_at], map: "ai_commerce_seller_status_history_seller_profile_id_cr_8f6be85d")
+}
+
+/// Records appeal events initiated by sellers in response to workflow
+/// actions (rejection, penalty, demotion, payout block, etc.). Linked to
+/// seller profile and includes resolution workflow. Each record covers one
+/// appeal and its status through close.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_seller_appeals {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Seller's {@link ai_commerce_seller_profiles.id} the appeal is for.
+  seller_profile_id String
+  
+  /// Nature of appeal (rejection, penalty, demotion, payout, etc.).
+  appeal_type String
+  
+  /// JSON-encoded details or evidence attached to this appeal.
+  appeal_data String
+  
+  /// Status of the appeal (open, in_review, resolved, rejected, closed).
+  status String
+  
+  /// Platform/admin summary of how this appeal was dealt with.
+  resolution_notes String?
+  
+  /// Appeal creation timestamp.
+  created_at DateTime
+  
+  /// Appeal last update timestamp.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  sellerProfile ai_commerce_seller_profiles @relation(fields: [seller_profile_id], references: [id], onDelete: Cascade)
+  
+  @@index([seller_profile_id, status])
+}
+
+/// Documents dispute cases (penalties, sanctions, escalations) for sellers.
+/// Includes all required business/legal fields for context, process,
+/// evidence, and status—audit-traceable and essential for regulated
+/// commerce. Resolution and closure is covered with admin actions,
+/// potentially subject to legal review.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_seller_disputes {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Seller profile's {@link ai_commerce_seller_profiles.id} involved in this
+  /// dispute.
+  seller_profile_id String
+  
+  /// Type of dispute/penalty/escalation (policy_violation,
+  /// fraud_investigation, payout_hold, etc.).
+  dispute_type String
+  
+  /// JSON data with dispute details, context, and evidence collected for
+  /// process/audit.
+  dispute_data String
+  
+  /// Current status in the dispute workflow (open, in_progress, resolved,
+  /// closed, escalated, withdrawn).
+  status String
+  
+  /// Platform/admin notes on process, outcome, or decision-making.
+  resolution_notes String?
+  
+  /// Dispute case creation timestamp.
+  created_at DateTime
+  
+  /// Dispute record last update.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  sellerProfile ai_commerce_seller_profiles @relation(fields: [seller_profile_id], references: [id], onDelete: Cascade)
+  
+  @@index([seller_profile_id, status])
+}
+
+/// Immutable append-only log of all actions and events related to seller
+/// onboarding, operations, escalations, compliance, and appeals. Used for
+/// rigorous audit, evidence handling, and legal defensibility for
+/// platform-admin roles.
+///
+/// @namespace Sellers
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_audit_logs_seller {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Seller profile that this log refers to {@link
+  /// ai_commerce_seller_profiles.id}.
+  seller_profile_id String?
+  
+  /// Workflow/process event (onboarding, status_change, kyc_update,
+  /// account_suspend, compliance_review, dispute_initiated, penalty_applied,
+  /// etc.).
+  event_type String
+  
+  /// Rich structured event data (snapshot of involved fields, module,
+  /// attachments, AI inferences, reasoning).
+  event_data String
+  
+  /// Who/what performed the action (admin, system, AI agent, seller, external
+  /// entity, etc.).
+  actor String
+  
+  /// Precise event creation timestamp (immutable).
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  sellerProfile ai_commerce_seller_profiles? @relation(fields: [seller_profile_id], references: [id], onDelete: Cascade)
+  
+  @@index([seller_profile_id, created_at])
+}

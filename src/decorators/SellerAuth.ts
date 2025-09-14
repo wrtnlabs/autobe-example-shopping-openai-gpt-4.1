@@ -5,8 +5,7 @@ import { Singleton } from "tstl";
 import { sellerAuthorize } from "../providers/authorize/sellerAuthorize";
 
 /**
- * Parameter Decorator to inject an authenticated SellerPayload into controller route handlers.
- * Adds bearer authentication requirement to Swagger/OpenAPI documentation.
+ * Parameter decorator for authenticating and injecting seller account payload.
  */
 export const SellerAuth =
   (): ParameterDecorator =>

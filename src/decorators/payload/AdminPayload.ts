@@ -1,10 +1,9 @@
 import { tags } from "typia";
 
-/** JWT payload for Admin authentication (top-level admin account). */
+/** Structure of the JWT payload for authenticated admin users. */
 export interface AdminPayload {
-  /** Top-level admin user table ID. UUID string identifying the admin account. */
+  /** Top-level admin user table ID (UUID). */
   id: string & tags.Format<"uuid">;
-
-  /** Discriminator for admin role. */
+  /** Discriminator for role-based authentication. */
   type: "admin";
 }

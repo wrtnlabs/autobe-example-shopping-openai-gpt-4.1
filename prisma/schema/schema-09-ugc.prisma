@@ -1,0 +1,596 @@
+/// Admin/seller-created notices; supports moderation, comments, attachments,
+/// audit, and evidence snapshotting. Independent entity for announcements
+/// and communication.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_bulletins {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to user(account) posting the bulletin ({@link ai_commerce_buyer.id}).
+  author_id String
+  
+  /// Bulletin title (shown to user, full-text search).
+  title String
+  
+  /// Bulletin body content. May use HTML/markdown (full-text search).
+  body String
+  
+  /// public/private/role-based scope flag.
+  visibility String
+  
+  /// draft/published/suspended/deleted business status.
+  status String
+  
+  /// Created timestamp.
+  created_at DateTime
+  
+  /// Last updated time.
+  updated_at DateTime
+  
+  /// Soft delete timestamp.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  author ai_commerce_buyer @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  
+  ai_commerce_comments ai_commerce_comments[]
+  ai_commerce_ugc_attachments ai_commerce_ugc_attachments[]
+  ai_commerce_ugc_moderation ai_commerce_ugc_moderation[]
+  ai_commerce_ugc_snapshots ai_commerce_ugc_snapshots[]
+  ai_commerce_ugc_edit_history ai_commerce_ugc_edit_history[]
+  ai_commerce_ugc_notifications ai_commerce_ugc_notifications[]
+  ai_commerce_ugc_audit_logs ai_commerce_ugc_audit_logs[]
+  
+  @@unique([author_id, title])
+  @@index([created_at])
+  @@index([status])
+}
+
+/// Buyer/user questions, linked to products, supporting responses, audit,
+/// moderation, edit history, and evidence. Controlled visibility; tied to
+/// product and buyer.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_inquiries {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to buyer who asks the question.
+  author_id String
+  
+  /// FK to product the inquiry is about.
+  product_id String
+  
+  /// Inquiry content text.
+  question String
+  
+  /// Inquiry visibility scope.
+  visibility String
+  
+  /// Answer text (nullable until answered; see edit history for versions).
+  answer String?
+  
+  /// Status: open/answered/moderating/deleted.
+  status String
+  
+  /// When inquiry was created.
+  created_at DateTime
+  
+  /// Last update timestamp.
+  updated_at DateTime
+  
+  /// Soft delete marker for compliance.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  author ai_commerce_buyer @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  product ai_commerce_products @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  
+  ai_commerce_comments ai_commerce_comments[]
+  ai_commerce_ugc_attachments ai_commerce_ugc_attachments[]
+  ai_commerce_ugc_moderation ai_commerce_ugc_moderation[]
+  ai_commerce_ugc_snapshots ai_commerce_ugc_snapshots[]
+  ai_commerce_ugc_edit_history ai_commerce_ugc_edit_history[]
+  ai_commerce_ugc_notifications ai_commerce_ugc_notifications[]
+  ai_commerce_ugc_audit_logs ai_commerce_ugc_audit_logs[]
+  ai_commerce_favorites_inquiries ai_commerce_favorites_inquiries[]
+  ai_commerce_favorites_inquiry_snapshots ai_commerce_favorites_inquiry_snapshots[]
+  
+  @@index([product_id])
+  
+  @@unique([author_id, product_id, question])
+  @@index([created_at])
+}
+
+/// Product/order review (buyer to product), single per order item, with
+/// support for answer, audit, moderation, attachment link,
+/// versioning/snapshotting, and evidence/history. Key UGC entity for
+/// compliance and feedback.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_reviews {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to buyer who wrote review.
+  author_id String
+  
+  /// FK to reviewed order item (unique per review).
+  order_item_id String
+  
+  /// Numeric review score.
+  rating Int
+  
+  /// Free-text review content.
+  body String
+  
+  /// Seller reply (nullable; see edit history for previous responses).
+  seller_response String?
+  
+  /// Scope: public/private/etc.
+  visibility String
+  
+  /// Moderation/publication status.
+  status String
+  
+  /// Created timestamp.
+  created_at DateTime
+  
+  /// Last updated timestamp.
+  updated_at DateTime
+  
+  /// Soft delete for audit/evidence.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  author ai_commerce_buyer @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  orderItem ai_commerce_order_items @relation(fields: [order_item_id], references: [id], onDelete: Cascade)
+  
+  ai_commerce_comments ai_commerce_comments[]
+  ai_commerce_ugc_attachments ai_commerce_ugc_attachments[]
+  ai_commerce_ugc_moderation ai_commerce_ugc_moderation[]
+  ai_commerce_ugc_snapshots ai_commerce_ugc_snapshots[]
+  ai_commerce_ugc_edit_history ai_commerce_ugc_edit_history[]
+  ai_commerce_ugc_notifications ai_commerce_ugc_notifications[]
+  ai_commerce_ugc_audit_logs ai_commerce_ugc_audit_logs[]
+  
+  @@unique([order_item_id])
+  
+  @@unique([author_id, order_item_id])
+  @@index([created_at])
+  @@index([status])
+}
+
+/// Comments/replies on any UGC (bulletin, inquiry, review, or a nested
+/// comment), including moderation and evidence. Supports self-nesting, soft
+/// delete, and audit trails.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_comments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to commenter (buyer).
+  author_id String
+  
+  /// Self-nesting for replies/threads (nullable, FK to ai_commerce_comments).
+  parent_comment_id String?
+  
+  /// FK to bulletin if this is a reply to a bulletin (nullable).
+  bulletin_id String?
+  
+  /// FK to inquiry (nullable).
+  inquiry_id String?
+  
+  /// FK to review (nullable).
+  review_id String?
+  
+  /// Comment content.
+  body String
+  
+  /// Moderation status/flag.
+  status String
+  
+  /// Created datetime.
+  created_at DateTime
+  
+  /// Updated datetime.
+  updated_at DateTime
+  
+  /// Soft-deleted timestamp, or null.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  author ai_commerce_buyer @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  parentComment ai_commerce_comments? @relation("recursive", fields: [parent_comment_id], references: [id], onDelete: Cascade)
+  bulletin ai_commerce_bulletins? @relation(fields: [bulletin_id], references: [id], onDelete: Cascade)
+  inquiry ai_commerce_inquiries? @relation(fields: [inquiry_id], references: [id], onDelete: Cascade)
+  review ai_commerce_reviews? @relation(fields: [review_id], references: [id], onDelete: Cascade)
+  
+  recursive ai_commerce_comments[] @relation("recursive")
+  ai_commerce_ugc_attachments ai_commerce_ugc_attachments[]
+  ai_commerce_ugc_moderation ai_commerce_ugc_moderation[]
+  ai_commerce_ugc_snapshots ai_commerce_ugc_snapshots[]
+  ai_commerce_ugc_edit_history ai_commerce_ugc_edit_history[]
+  ai_commerce_ugc_notifications ai_commerce_ugc_notifications[]
+  ai_commerce_ugc_audit_logs ai_commerce_ugc_audit_logs[]
+  
+  @@index([parent_comment_id])
+  @@index([bulletin_id])
+  @@index([inquiry_id])
+  @@index([review_id])
+  
+  @@unique([author_id, created_at])
+  @@index([status])
+  @@index([created_at])
+}
+
+/// UGC-linked attachment: links a single attachment to a specific UGC entity
+/// for evidence retention. All references use IRelation to the correct UGC
+/// table or attachment model.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_ugc_attachments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to target UGC entity (bulletin, inquiry, review, or comment, union via
+  /// explicit FK—set only one, others nullable).
+  ugc_entity_id String?
+  
+  /// FK to target inquiry (nullable, if this is attachment to inquiry).
+  ugc_entity_id_inquiry String?
+  
+  /// FK to target review (nullable, if this is attachment to review).
+  ugc_entity_id_review String?
+  
+  /// FK to target comment (nullable, if this is attachment to comment).
+  ugc_entity_id_comment String?
+  
+  /// FK to the file in ai_commerce_attachments.
+  attachment_id String
+  
+  /// Attachment version number.
+  version Int
+  
+  /// Attachment creation timestamp.
+  created_at DateTime
+  
+  /// Soft delete timestamp (nullable).
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  ugcEntityBulletin ai_commerce_bulletins? @relation(fields: [ugc_entity_id], references: [id], onDelete: Cascade)
+  ugcEntityInquiry ai_commerce_inquiries? @relation(fields: [ugc_entity_id_inquiry], references: [id], onDelete: Cascade)
+  ugcEntityReview ai_commerce_reviews? @relation(fields: [ugc_entity_id_review], references: [id], onDelete: Cascade)
+  ugcEntityComment ai_commerce_comments? @relation(fields: [ugc_entity_id_comment], references: [id], onDelete: Cascade)
+  attachment ai_commerce_attachments @relation(fields: [attachment_id], references: [id], onDelete: Cascade)
+  
+  @@index([ugc_entity_id])
+  @@index([ugc_entity_id_inquiry])
+  @@index([ugc_entity_id_review])
+  @@index([ugc_entity_id_comment])
+  
+  @@unique([attachment_id, ugc_entity_id, ugc_entity_id_inquiry, ugc_entity_id_review, ugc_entity_id_comment], map: "ai_commerce_ugc_attachments_attachment_id_ugc_entity_i_7c7e98a1")
+}
+
+/// Moderation/audit event for UGC entities. Every moderation row is attached
+/// directly to the UGC row by real IRelation only. Actor/admin is always
+/// required.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_ugc_moderation {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to moderated bulletin (nullable).
+  ugc_entity_bulletin_id String?
+  
+  /// FK to moderated inquiry (nullable).
+  ugc_entity_inquiry_id String?
+  
+  /// FK to moderated review (nullable).
+  ugc_entity_review_id String?
+  
+  /// FK to moderated comment (nullable).
+  ugc_entity_comment_id String?
+  
+  /// FK to moderator/admin performing the action.
+  moderator_id String
+  
+  /// Action taken (approve/reject/etc).
+  action String
+  
+  /// Outcome/result.
+  result String
+  
+  /// Business context/reason (nullable).
+  reason String?
+  
+  /// FK to related ugc_snapshot, if any (nullable).
+  evidence_snapshot_id String?
+  
+  /// Timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  ugcEntityBulletin ai_commerce_bulletins? @relation(fields: [ugc_entity_bulletin_id], references: [id], onDelete: Cascade)
+  ugcEntityInquiry ai_commerce_inquiries? @relation(fields: [ugc_entity_inquiry_id], references: [id], onDelete: Cascade)
+  ugcEntityReview ai_commerce_reviews? @relation(fields: [ugc_entity_review_id], references: [id], onDelete: Cascade)
+  ugcEntityComment ai_commerce_comments? @relation(fields: [ugc_entity_comment_id], references: [id], onDelete: Cascade)
+  moderator ai_commerce_admin @relation(fields: [moderator_id], references: [id], onDelete: Cascade)
+  
+  @@index([ugc_entity_bulletin_id])
+  @@index([ugc_entity_inquiry_id])
+  @@index([ugc_entity_review_id])
+  @@index([ugc_entity_comment_id])
+  @@index([moderator_id])
+  
+  @@index([action])
+}
+
+/// Full state snapshot for UGC entity versioning/audit. Each foreign key
+/// targets explicit tables. Used for compliance and rollback, referenced
+/// from histories and moderation.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_ugc_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to bulletin (nullable).
+  ugc_entity_bulletin_id String?
+  
+  /// FK to inquiry (nullable).
+  ugc_entity_inquiry_id String?
+  
+  /// FK to review (nullable).
+  ugc_entity_review_id String?
+  
+  /// FK to comment (nullable).
+  ugc_entity_comment_id String?
+  
+  /// FK to actor (admin/moderator/buyer).
+  actor_id String
+  
+  /// Full entity JSON/text at this snapshot.
+  snapshot_data String
+  
+  /// Business context/change reason (nullable).
+  change_reason String?
+  
+  /// Snapshot creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  ugcEntityBulletin ai_commerce_bulletins? @relation(fields: [ugc_entity_bulletin_id], references: [id], onDelete: Cascade)
+  ugcEntityInquiry ai_commerce_inquiries? @relation(fields: [ugc_entity_inquiry_id], references: [id], onDelete: Cascade)
+  ugcEntityReview ai_commerce_reviews? @relation(fields: [ugc_entity_review_id], references: [id], onDelete: Cascade)
+  ugcEntityComment ai_commerce_comments? @relation(fields: [ugc_entity_comment_id], references: [id], onDelete: Cascade)
+  actor ai_commerce_admin @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+  
+  @@index([ugc_entity_bulletin_id])
+  @@index([ugc_entity_inquiry_id])
+  @@index([ugc_entity_review_id])
+  @@index([ugc_entity_comment_id])
+  @@index([actor_id])
+}
+
+/// Edits/revisions for UGC entities; tracks actor, affected record, and
+/// predecessor chain for evidence and rollback. All foreign keys use
+/// explicit IRelation.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_ugc_edit_history {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to bulletin (nullable).
+  ugc_entity_bulletin_id String?
+  
+  /// FK to inquiry (nullable).
+  ugc_entity_inquiry_id String?
+  
+  /// FK to review (nullable).
+  ugc_entity_review_id String?
+  
+  /// FK to comment (nullable).
+  ugc_entity_comment_id String?
+  
+  /// FK to actor responsible for edit.
+  actor_id String
+  
+  /// FK to previous edit entry (for edit chain; nullable).
+  previous_edit_id String?
+  
+  /// Entity JSON/text before edit.
+  before_state String
+  
+  /// Entity JSON/text after edit.
+  after_state String
+  
+  /// Summary for UI/notifications.
+  edit_summary String
+  
+  /// Edit event time.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  ugcEntityBulletin ai_commerce_bulletins? @relation(fields: [ugc_entity_bulletin_id], references: [id], onDelete: Cascade)
+  ugcEntityInquiry ai_commerce_inquiries? @relation(fields: [ugc_entity_inquiry_id], references: [id], onDelete: Cascade)
+  ugcEntityReview ai_commerce_reviews? @relation(fields: [ugc_entity_review_id], references: [id], onDelete: Cascade)
+  ugcEntityComment ai_commerce_comments? @relation(fields: [ugc_entity_comment_id], references: [id], onDelete: Cascade)
+  actor ai_commerce_admin @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+  previousEdit ai_commerce_ugc_edit_history? @relation("recursive", fields: [previous_edit_id], references: [id], onDelete: Cascade)
+  
+  recursive ai_commerce_ugc_edit_history[] @relation("recursive")
+  
+  @@index([ugc_entity_bulletin_id])
+  @@index([ugc_entity_inquiry_id])
+  @@index([ugc_entity_review_id])
+  @@index([ugc_entity_comment_id])
+  @@index([actor_id])
+  @@index([previous_edit_id])
+}
+
+/// Notification event for UGC (update or moderation); foreign fields always
+/// reference actual entities/tables using explicit IRelation.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_ugc_notifications {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK recipient user (buyer only here).
+  notification_target_id String
+  
+  /// FK to bulletin triggering notification (nullable).
+  ugc_entity_bulletin_id String?
+  
+  /// FK to inquiry (nullable).
+  ugc_entity_inquiry_id String?
+  
+  /// FK to review (nullable).
+  ugc_entity_review_id String?
+  
+  /// FK to comment (nullable).
+  ugc_entity_comment_id String?
+  
+  /// Type of notification (created/responded/moderated/etc).
+  event_type String
+  
+  /// Status: sent/queued/seen/failed/withdrawn.
+  status String
+  
+  /// Notification body/message.
+  message String
+  
+  /// When created.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  notificationTarget ai_commerce_buyer @relation(fields: [notification_target_id], references: [id], onDelete: Cascade)
+  ugcEntityBulletin ai_commerce_bulletins? @relation(fields: [ugc_entity_bulletin_id], references: [id], onDelete: Cascade)
+  ugcEntityInquiry ai_commerce_inquiries? @relation(fields: [ugc_entity_inquiry_id], references: [id], onDelete: Cascade)
+  ugcEntityReview ai_commerce_reviews? @relation(fields: [ugc_entity_review_id], references: [id], onDelete: Cascade)
+  ugcEntityComment ai_commerce_comments? @relation(fields: [ugc_entity_comment_id], references: [id], onDelete: Cascade)
+  
+  @@index([notification_target_id])
+  @@index([ugc_entity_bulletin_id])
+  @@index([ugc_entity_inquiry_id])
+  @@index([ugc_entity_review_id])
+  @@index([ugc_entity_comment_id])
+}
+
+/// Audit/compliance log for UGC state changes; all foreign keys use explicit
+/// IRelation, targeting only actual UGC entities or acting admin.
+///
+/// @namespace UGC
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model ai_commerce_ugc_audit_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// FK to bulletin (nullable).
+  ugc_entity_bulletin_id String?
+  
+  /// FK to inquiry (nullable).
+  ugc_entity_inquiry_id String?
+  
+  /// FK to review (nullable).
+  ugc_entity_review_id String?
+  
+  /// FK to comment (nullable).
+  ugc_entity_comment_id String?
+  
+  /// FK to actor (admin/moderator).
+  actor_id String
+  
+  /// Kind of operation performed.
+  action_type String
+  
+  /// Result string/outcome.
+  action_result String
+  
+  /// Entity JSON/text before action.
+  before_state String
+  
+  /// Entity JSON/text after action.
+  after_state String
+  
+  /// Log creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  ugcEntityBulletin ai_commerce_bulletins? @relation(fields: [ugc_entity_bulletin_id], references: [id], onDelete: Cascade)
+  ugcEntityInquiry ai_commerce_inquiries? @relation(fields: [ugc_entity_inquiry_id], references: [id], onDelete: Cascade)
+  ugcEntityReview ai_commerce_reviews? @relation(fields: [ugc_entity_review_id], references: [id], onDelete: Cascade)
+  ugcEntityComment ai_commerce_comments? @relation(fields: [ugc_entity_comment_id], references: [id], onDelete: Cascade)
+  actor ai_commerce_admin @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+  
+  @@index([ugc_entity_bulletin_id])
+  @@index([ugc_entity_inquiry_id])
+  @@index([ugc_entity_review_id])
+  @@index([ugc_entity_comment_id])
+  @@index([actor_id])
+}
