@@ -28,6 +28,7 @@
     "webpack:test": "npm run webpack && node bin/test/webpack.js",
     "------------------------DEPLOYS------------------------": "",
     "package:api": "npm run build:api && cd packages/api && npm publish",
+    "schema": "ts-node src/executable/schema",
     "start": "node lib/executable/server",
     "start:dev": "nest start --watch",
     "start:swagger": "ts-node src/executable/swagger.ts"
@@ -48,7 +49,6 @@
   },
   "homepage": "https://github.com/samchon/nestia-start#readme",
   "devDependencies": {
-    "@autobe/interface": "^0.10.6",
     "@nestia/benchmark": "^8.0.7",
     "@nestia/e2e": "^8.0.7",
     "@nestia/sdk": "^8.0.7",
@@ -97,19 +97,24 @@
     "@nestjs/core": "^11.1.3",
     "@nestjs/platform-express": "^11.1.3",
     "@nestjs/platform-fastify": "^11.1.3",
-    "@prisma/client": "^6.11.1",
+    "@prisma/adapter-pg": "^6.16.2",
+    "@prisma/adapter-better-sqlite3": "^6.16.2",
+    "@prisma/client": "^6.16.2",
     "bcryptjs": "^3.0.2",
     "commander": "10.0.0",
     "dotenv": "^16.3.1",
     "dotenv-expand": "^10.0.0",
     "inquirer": "8.2.5",
     "jsonwebtoken": "^9.0.2",
-    "prisma": "^6.11.1",
+    "prisma": "^6.16.2",
     "serialize-error": "^4.1.0",
     "tgrid": "^1.1.0",
     "tstl": "^3.0.0",
     "typia": "^9.7.2",
     "uuid": "^9.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3"]
   },
   "stackblitz": {
     "startCommand": "npm run prepare && npm run build:test && npm run test -- --simultaneous 1"
