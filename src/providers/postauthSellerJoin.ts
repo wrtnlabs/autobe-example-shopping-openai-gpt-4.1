@@ -1,119 +1,126 @@
-import jwt from "jsonwebtoken";
-import { MyGlobal } from "../MyGlobal";
-import typia, { tags } from "typia";
+import { HttpException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import typia, { tags } from "typia";
 import { v4 } from "uuid";
-import { toISOStringSafe } from "../util/toISOStringSafe";
-import { IAiCommerceSeller } from "@ORGANIZATION/PROJECT-api/lib/structures/IAiCommerceSeller";
+import { MyGlobal } from "../MyGlobal";
+import { PasswordUtil } from "../utils/PasswordUtil";
+import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-/**
- * Register a new seller account (ai_commerce_seller table) and issue initial
- * tokens.
- *
- * This endpoint handles registration of a new seller account, which must be
- * linked to an existing buyer account (via buyer_id). It enforces unique seller
- * emails, hashes passwords securely, creates the seller (status
- * 'under_review'), and issues a JWT-based session token pair. If a seller or
- * buyer with the given email already exists as a seller, a clear error is
- * thrown. No native Date or 'as' is used; all datetimes use toISOStringSafe and
- * UUID uses v4 with correct branding. The account is not auto-approved;
- * onboarding workflow is triggered through subsequent logic.
- *
- * @param props - Object with the body containing registration info
- * @param props.body.email - Unique seller registration email (must already
- *   exist as buyer email)
- * @param props.body.password - Plaintext password, which will be hashed and
- *   stored as password_hash
- * @returns IAuthorized object containing seller id and JWT token
- * @throws {Error} If a seller with the email already exists, or the buyer does
- *   not exist
- */
-export async function postauthSellerJoin(props: {
-  body: IAiCommerceSeller.IJoin;
-}): Promise<IAiCommerceSeller.IAuthorized> {
-  const { email, password } = props.body;
+import { IShoppingMallSeller } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallSeller";
+import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
 
-  return await MyGlobal.prisma.$transaction(async (tx) => {
-    // Check for duplicate seller (linked via buyer email)
-    const duplicateSeller = await tx.ai_commerce_seller.findFirst({
-      where: { buyer: { email } },
-    });
-    if (duplicateSeller) {
-      throw new Error("A seller with this email already exists.");
-    }
-
-    // Find existing buyer for email
-    const buyer = await tx.ai_commerce_buyer.findUnique({
-      where: { email },
-    });
-    if (!buyer) {
-      throw new Error(
-        "Cannot register as seller: buyer must pre-exist with this email.",
-      );
-    }
-
-    // Securely hash seller password
-    const password_hash = await MyGlobal.password.hash(password);
-    // Update buyer password hash if not already set, for security/convergence
-    await tx.ai_commerce_buyer.update({
-      where: { id: buyer.id },
-      data: { password_hash },
-    });
-
-    // Create seller with status under_review
-    const sellerId = v4() as string & tags.Format<"uuid">;
-    const now = toISOStringSafe(new Date());
-    await tx.ai_commerce_seller.create({
-      data: {
-        id: sellerId,
-        buyer_id: buyer.id,
-        status: "under_review",
-        created_at: now,
-        updated_at: now,
-        onboarded_at: null,
-        deleted_at: null,
-      },
-    });
-
-    // Access token valid for 1 hour, refresh for 7 days
-    const accessExp = new Date(Date.now() + 60 * 60 * 1000); // 1h
-    const refreshExp = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7d
-    const accessExpiredAt = toISOStringSafe(accessExp);
-    const refreshableUntil = toISOStringSafe(refreshExp);
-
-    // JWT payload & creation
-    const jwtPayload = { id: sellerId, type: "seller" };
-    const secret = MyGlobal.env.JWT_SECRET_KEY;
-    const access =
-      (await new Promise<string>((resolve, reject) => {
-        jwt.sign(
-          jwtPayload,
-          secret,
-          { expiresIn: "1h", issuer: "autobe" },
-          (err, token) => (err ? reject(err) : resolve(token || "")),
-        );
-      })) ?? "";
-    const refresh =
-      (await new Promise<string>((resolve, reject) => {
-        jwt.sign(
-          { ...jwtPayload, tokenType: "refresh" },
-          secret,
-          { expiresIn: "7d", issuer: "autobe" },
-          (err, token) => (err ? reject(err) : resolve(token || "")),
-        );
-      })) ?? "";
-
-    // Full DTO token structure
-    const token = {
-      access,
-      refresh,
-      expired_at: accessExpiredAt,
-      refreshable_until: refreshableUntil,
-    };
-
-    return {
-      id: sellerId,
-      token,
-    };
+export async function postAuthSellerJoin(props: {
+  body: IShoppingMallSeller.IJoin;
+}): Promise<IShoppingMallSeller.IAuthorized> {
+  const { body } = props;
+  // 1. Ensure email uniqueness within the channel
+  const existing = await MyGlobal.prisma.shopping_mall_customers.findFirst({
+    where: {
+      shopping_mall_channel_id: body.shopping_mall_channel_id,
+      email: body.email,
+      deleted_at: null,
+    },
+    select: { id: true },
   });
+  if (existing) {
+    throw new HttpException("Email already registered in this channel.", 409);
+  }
+
+  // 2. Password must be present and hashed
+  if (!body.password) {
+    throw new HttpException("Password is required for registration.", 400);
+  }
+  const passwordHash = await PasswordUtil.hash(body.password);
+
+  // 3. Timestamps and IDs
+  const now = toISOStringSafe(new Date());
+  const customerId = v4();
+  const sellerId = v4();
+
+  // 4. Create customer record
+  await MyGlobal.prisma.shopping_mall_customers.create({
+    data: {
+      id: customerId,
+      shopping_mall_channel_id: body.shopping_mall_channel_id,
+      email: body.email,
+      password_hash: passwordHash,
+      phone: body.phone ?? null,
+      name: body.name,
+      status: "pending",
+      kyc_status: body.kyc_status ?? "pending",
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    },
+  });
+
+  // 5. Create seller record
+  const seller = await MyGlobal.prisma.shopping_mall_sellers.create({
+    data: {
+      id: sellerId,
+      shopping_mall_customer_id: customerId,
+      shopping_mall_section_id: body.shopping_mall_section_id,
+      profile_name: body.profile_name,
+      status: "pending",
+      approval_at: null,
+      kyc_status: body.kyc_status ?? "pending",
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    },
+  });
+
+  // 6. JWT tokens and expiration timestamps
+  const expiresAt = toISOStringSafe(new Date(Date.now() + 60 * 60 * 1000));
+  const refreshableUntil = toISOStringSafe(
+    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  );
+
+  const payload = {
+    id: seller.id,
+    type: "seller",
+  };
+  const access = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: "1h",
+    issuer: "autobe",
+  });
+  const refresh = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: "7d",
+    issuer: "autobe",
+  });
+
+  const token: IAuthorizationToken = {
+    access,
+    refresh,
+    expired_at: expiresAt,
+    refreshable_until: refreshableUntil,
+  };
+
+  const summary: IShoppingMallSeller.ISummary = {
+    id: seller.id,
+    shopping_mall_section_id: seller.shopping_mall_section_id,
+    profile_name: seller.profile_name,
+    status: seller.status,
+    approval_at: null,
+    kyc_status: seller.kyc_status,
+    created_at: toISOStringSafe(seller.created_at),
+    updated_at: toISOStringSafe(seller.updated_at),
+    deleted_at: null,
+  };
+
+  return {
+    id: seller.id,
+    shopping_mall_customer_id: seller.shopping_mall_customer_id,
+    shopping_mall_section_id: seller.shopping_mall_section_id,
+    profile_name: seller.profile_name,
+    status: seller.status,
+    approval_at: null,
+    kyc_status: seller.kyc_status,
+    created_at: toISOStringSafe(seller.created_at),
+    updated_at: toISOStringSafe(seller.updated_at),
+    deleted_at: null,
+    token,
+    seller: summary,
+  };
 }

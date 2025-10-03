@@ -1,9 +1,0 @@
-export * as admin from "./admin/index";
-export * as channels from "./channels/index";
-export * as buyer from "./buyer/index";
-export * as seller from "./seller/index";
-export * as products from "./products/index";
-export * as trendingProducts from "./trendingProducts/index";
-export * as highlightedProducts from "./highlightedProducts/index";
-export * as bulletins from "./bulletins/index";
-export * as inquiries from "./inquiries/index";

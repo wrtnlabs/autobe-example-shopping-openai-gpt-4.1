@@ -1,564 +1,557 @@
-/// Registered buyer account for the aiCommerce platform. Scopes purchasing,
-/// profile, and favorites. Links to auth, addresses, and profile. Subject to
-/// privacy compliance and audit. Role elevation to seller supported via
-/// status field. Soft delete for recovery and right-to-be-forgotten
-/// compliance.
+/// Customer profile and identity for shopping mall platform. Stores primary
+/// information for authenticated shoppers, their contact data, credential
+/// hashes, registration channel, status, soft-delete, and audit timestamps.
+/// Linked to their associated identities, external accounts, agreements, and
+/// snapshots. {@link shopping_mall_customer_identities}, {@link
+/// shopping_mall_external_accounts}, {@link shopping_mall_user_agreements},
+/// and {@link shopping_mall_customer_snapshots}.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_buyer {
+model shopping_mall_customers {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Unique email address. Required for authentication and notifications.
+  /// Registered channel's {@link shopping_mall_channels.id} for multi-tenant
+  /// segmentation.
+  shopping_mall_channel_id String
+  
+  /// Primary customer email, unique per channel. Used for login unless OAuth
+  /// only.
   email String
   
-  /// Hashed password for login.
-  password_hash String
+  /// Hashed password for authentication (never store plain). Null if no
+  /// password for OAuth-only users.
+  password_hash String?
   
-  /// Buyer account status: active, suspended, deleted, etc.
+  /// Mobile/contact phone per channel policy.
+  phone String?
+  
+  /// Legal or preferred name for personalized interactions, receipts,
+  /// compliance.
+  name String
+  
+  /// Customer account lifecycle status (active, pending, suspended, withdrawn,
+  /// etc).
   status String
   
-  /// Account creation timestamp.
+  /// KYC/identity verification status (pending, verified, denied, etc).
+  kyc_status String
+  
+  /// Record creation timestamp (UTC ISO-8601).
   created_at DateTime
   
-  /// Timestamp of last profile or status update.
+  /// Record last modification timestamp (auto-update).
   updated_at DateTime
   
-  /// Soft delete timestamp for retention and privacy compliance.
+  /// Soft deletion timestamp for audit/compliance. Null if not deleted.
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  ai_commerce_seller ai_commerce_seller?
-  ai_commerce_user_authentications ai_commerce_user_authentications[]
-  ai_commerce_user_addresses ai_commerce_user_addresses[]
-  ai_commerce_user_external_accounts ai_commerce_user_external_accounts[]
-  ai_commerce_user_profiles ai_commerce_user_profiles?
-  ai_commerce_audit_logs_user ai_commerce_audit_logs_user[]
-  ai_commerce_search_histories ai_commerce_search_histories[]
-  ai_commerce_recommendation_snapshots ai_commerce_recommendation_snapshots[]
-  ai_commerce_carts ai_commerce_carts[]
-  ai_commerce_cart_sessions ai_commerce_cart_sessions[]
-  ai_commerce_cart_merges ai_commerce_cart_merges[]
-  ai_commerce_orders ai_commerce_orders[]
-  ai_commerce_order_status_history ai_commerce_order_status_history[]
-  ai_commerce_order_after_sales ai_commerce_order_after_sales[]
-  ai_commerce_order_cancellations ai_commerce_order_cancellations[]
-  ai_commerce_order_refunds ai_commerce_order_refunds[]
-  ai_commerce_bulletins ai_commerce_bulletins[]
-  ai_commerce_inquiries ai_commerce_inquiries[]
-  ai_commerce_reviews ai_commerce_reviews[]
-  ai_commerce_comments ai_commerce_comments[]
-  ai_commerce_ugc_notifications ai_commerce_ugc_notifications[]
-  ai_commerce_favorites_products ai_commerce_favorites_products[]
-  ai_commerce_favorites_inquiries ai_commerce_favorites_inquiries[]
-  ai_commerce_favorites_addresses ai_commerce_favorites_addresses[]
-  ai_commerce_favorites_folders ai_commerce_favorites_folders[]
-  ai_commerce_favorites_notifications ai_commerce_favorites_notifications[]
-  ai_commerce_favorites_audit_logs ai_commerce_favorites_audit_logs[]
-  ai_commerce_attachments ai_commerce_attachments[]
-  ai_commerce_attachment_access_audit ai_commerce_attachment_access_audit[]
+  channel shopping_mall_channels @relation(fields: [shopping_mall_channel_id], references: [id], onDelete: Cascade)
   
-  @@unique([email])
+  shopping_mall_sellers shopping_mall_sellers?
+  shopping_mall_customer_identities shopping_mall_customer_identities[]
+  shopping_mall_external_accounts shopping_mall_external_accounts[]
+  shopping_mall_customer_snapshots shopping_mall_customer_snapshots[]
+  shopping_mall_carts shopping_mall_carts[]
+  shopping_mall_orders shopping_mall_orders[]
+  shopping_mall_payments shopping_mall_payments[]
+  shopping_mall_coupon_issuances shopping_mall_coupon_issuances[]
+  shopping_mall_coupon_usages shopping_mall_coupon_usages[]
+  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
+  shopping_mall_deposits shopping_mall_deposits?
+  shopping_mall_deposit_transactions shopping_mall_deposit_transactions[]
+  shopping_mall_mileages shopping_mall_mileages?
+  shopping_mall_mileage_transactions shopping_mall_mileage_transactions[]
+  shopping_mall_donations shopping_mall_donations[]
+  shopping_mall_board_posts shopping_mall_board_posts[]
+  shopping_mall_product_inquiries shopping_mall_product_inquiries[]
+  shopping_mall_reviews shopping_mall_reviews[]
+  shopping_mall_comments shopping_mall_comments[]
+  shopping_mall_favorite_products shopping_mall_favorite_products[]
+  shopping_mall_favorite_addresses shopping_mall_favorite_addresses[]
+  shopping_mall_favorite_inquiries shopping_mall_favorite_inquiries[]
+  
+  @@unique([shopping_mall_channel_id, email])
+  @@index([status])
   @@index([created_at])
 }
 
-/// Seller account structure. Linked to buyer account for role elevation.
-/// Handles onboarding, KYC, store management references, and legal
-/// compliance snapshots. Status supports escalation, penalties, or
-/// downgrades. Soft delete for privacy compliance.
+/// Seller account information. Identifies vendors with permissions to
+/// list/manage products and access sales analytics for their own goods.
+/// Inherits all customer fields plus seller-specific status, escalation,
+/// verification, and profile meta. Links to customer entity, has
+/// audit/snapshot, and supports soft delete. {@link shopping_mall_customers}
+/// (relation), {@link shopping_mall_sections}, {@link
+/// shopping_mall_seller_snapshots}.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_seller {
+model shopping_mall_sellers {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Linked {@link ai_commerce_buyer.id} for seller-member relationship.
-  buyer_id String
+  /// Base customer record {@link shopping_mall_customers.id} for permission
+  /// inheritance and login linkage.
+  shopping_mall_customer_id String
   
-  /// Seller status: active, under_review, suspended, terminated, etc.
+  /// Home section/shop for the seller {@link shopping_mall_sections.id}. Used
+  /// for channel/section scoping.
+  shopping_mall_section_id String
+  
+  /// Seller's public display name or shop title.
+  profile_name String
+  
+  /// Seller approval/lifecycle status (pending, active, suspended, rejected,
+  /// withdrawn).
   status String
   
-  /// Timestamp for completion of onboarding/approval process.
-  onboarded_at DateTime?
+  /// Datetime seller was formally approved. Null if not yet approved.
+  approval_at DateTime?
   
-  /// Account creation timestamp.
+  /// KYC/identity check status (pending, verified, denied, etc).
+  kyc_status String
+  
+  /// Record creation timestamp (UTC ISO-8601).
   created_at DateTime
   
-  /// Last updated timestamp for profile or status.
+  /// Record last modification timestamp (auto-update).
   updated_at DateTime
   
-  /// Soft delete timestamp for legal retention/audit.
+  /// Soft deletion timestamp for audit/compliance. Null if not deleted.
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  buyer ai_commerce_buyer @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  section shopping_mall_sections @relation(fields: [shopping_mall_section_id], references: [id], onDelete: Cascade)
   
-  ai_commerce_products ai_commerce_products[]
-  ai_commerce_highlighted_products ai_commerce_highlighted_products[]
-  ai_commerce_order_items ai_commerce_order_items[]
-  ai_commerce_sub_orders ai_commerce_sub_orders[]
+  shopping_mall_seller_snapshots shopping_mall_seller_snapshots[]
+  shopping_mall_products shopping_mall_products[]
+  shopping_mall_order_items shopping_mall_order_items[]
+  shopping_mall_shipments shopping_mall_shipments[]
+  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
+  shopping_mall_board_posts shopping_mall_board_posts[]
+  shopping_mall_product_inquiries shopping_mall_product_inquiries[]
+  shopping_mall_inquiry_answers shopping_mall_inquiry_answers[]
+  shopping_mall_reviews shopping_mall_reviews[]
+  shopping_mall_comments shopping_mall_comments[]
   
-  @@unique([buyer_id])
+  @@index([shopping_mall_section_id])
+  
+  @@unique([shopping_mall_customer_id])
+  @@index([status])
   @@index([created_at])
 }
 
-/// Admin-level user for platform and compliance management. Controls global
-/// settings, user/seller moderation, and escalation points. Separate from
-/// regular buyers/sellers for audit and global access restriction. All admin
-/// actions are strictly audited.
+/// Platform administrator profiles with role-based privilege separation.
+/// Controls all system-level configuration, moderation, and audit features.
+/// Core entity for admin authentication, KYC validation, and independent
+/// login. Linked to escalation, audit, and admin snapshot tables. {@link
+/// shopping_mall_admin_role_escalations}, {@link
+/// shopping_mall_admin_snapshots}.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_admin {
+model shopping_mall_admins {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Unique email address for admin login/audit.
+  /// Admin login email. Unique across all admins (no duplication allowed).
   email String
   
-  /// Hashed password for admin authentication (privileged access).
+  /// Hashed password for admin authentication (never store plain).
   password_hash String
   
-  /// Status of admin account: active, suspended, etc.
+  /// Full legal name (compliance, logging, and business context).
+  name String
+  
+  /// Admin account state (active, suspended, pending, withdrawn, etc).
   status String
   
-  /// Admin account creation timestamp.
+  /// KYC/identity verification status (pending, verified, denied, etc).
+  kyc_status String
+  
+  /// Record creation timestamp (UTC ISO-8601).
   created_at DateTime
   
-  /// Timestamp of last update to admin profile/status.
+  /// Record last modification timestamp (auto-update).
   updated_at DateTime
   
-  /// Soft delete field for compliance; not physical delete.
+  /// Soft deletion timestamp for audit/compliance. Null if not deleted.
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  ai_commerce_user_authentications ai_commerce_user_authentications[]
-  ai_commerce_audit_logs_user ai_commerce_audit_logs_user[]
-  ai_commerce_audit_logs_discovery ai_commerce_audit_logs_discovery[]
-  ai_commerce_cart_templates ai_commerce_cart_templates[]
-  ai_commerce_cart_expirations ai_commerce_cart_expirations[]
-  ai_commerce_cart_audit_logs ai_commerce_cart_audit_logs[]
-  ai_commerce_ugc_moderation ai_commerce_ugc_moderation[]
-  ai_commerce_ugc_snapshots ai_commerce_ugc_snapshots[]
-  ai_commerce_ugc_edit_history ai_commerce_ugc_edit_history[]
-  ai_commerce_ugc_audit_logs ai_commerce_ugc_audit_logs[]
+  shopping_mall_admin_role_escalations shopping_mall_admin_role_escalations[]
+  shopping_mall_admin_snapshots shopping_mall_admin_snapshots[]
+  shopping_mall_board_posts shopping_mall_board_posts[]
+  shopping_mall_inquiry_answers shopping_mall_inquiry_answers[]
+  shopping_mall_comments shopping_mall_comments[]
   
   @@unique([email])
+  @@index([status])
   @@index([created_at])
 }
 
-/// Anonymous or temporary user entity for non-registered browsing sessions.
-/// Used to track marketing acquisition, incomplete onboarding, or guest
-/// cart/favorites bridging before registration.
+/// Customer identity verification information (KYC). Holds personal
+/// identifiers, validated documents, verification status, issuer meta, and
+/// active/inactive history. Links to customer entity and supports compliance
+/// audits. Never directly exposed to non-admin users.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_visitor {
+model shopping_mall_customer_identities {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Tracking identifier assigned to the visitor (cookie/session/device
-  /// fingerprint).
-  tracking_id String
+  /// Customer's {@link shopping_mall_customers.id} for whom this identity
+  /// record is maintained.
+  shopping_mall_customer_id String
   
-  /// Visitor record creation timestamp.
+  /// Type of identity: government_id, passport, driver's_license,
+  /// resident_number, etc.
+  identity_type String
+  
+  /// Hashed or encrypted identifier value for privacy.
+  identity_value String
+  
+  /// Year/authority/issuer for the proof. Optional per national regulation.
+  issuer String?
+  
+  /// Date when ID/proof was issued. Useful for validity tracking.
+  issue_date DateTime?
+  
+  /// Datetime when this identity was confirmed as valid by business staff or
+  /// AI models.
+  verified_at DateTime?
+  
+  /// Verification state: pending, verified, rejected, expired, etc.
+  status String
+  
+  /// Record creation timestamp (UTC ISO-8601).
   created_at DateTime
   
-  /// Timestamp of last update (e.g., session activity, attribution change).
+  /// Record last modification timestamp (auto-update).
   updated_at DateTime
   
-  /// Soft delete of visitor data for privacy auditing.
-  deleted_at DateTime?
-  
   //----
   // RELATIONS
   //----
-  @@unique([tracking_id])
-  @@index([created_at])
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  
+  @@unique([shopping_mall_customer_id, identity_type], map: "shopping_mall_customer_identities_shopping_mall_custom_510e5bb6")
+  @@index([status])
 }
 
-/// Core authentication and session tracking for buyers, sellers, and admins.
-/// Supports multi-device, MFA, and OAuth federation. Logs device, IP,
-/// method, and session expiry for secure audit.
+/// External OAuth/social account linkage for cross-platform authentication
+/// (Google, Apple, Kakao, Naver, etc). Stores mapping to provider, subject
+/// ID, link status, and audit meta. Supports unique association per provider
+/// per customer. Used for password-less logins, account recovery, and
+/// omnichannel identity. {@link shopping_mall_customers}.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_user_authentications {
+model shopping_mall_external_accounts {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Buyer account {@link ai_commerce_buyer.id} for this authentication
-  /// session (nullable if admin).
-  buyer_id String?
+  /// Customer's {@link shopping_mall_customers.id} this external account
+  /// belongs to.
+  shopping_mall_customer_id String
   
-  /// Admin account {@link ai_commerce_admin.id} for this authentication
-  /// session (nullable if buyer).
-  admin_id String?
-  
-  /// Authentication type: password, external, magic link, MFA, etc.
-  method String
-  
-  /// Device metadata (browser, OS, device fingerprint).
-  device_info String?
-  
-  /// User login IP address for audit trail and geo-compliance.
-  ip_address String?
-  
-  /// Session expiration timestamp (JWT, refresh, etc.).
-  session_expires_at DateTime
-  
-  /// Session record creation time.
-  created_at DateTime
-  
-  /// Session last activity update.
-  updated_at DateTime
-  
-  /// Soft deleted session record.
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  buyer ai_commerce_buyer? @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
-  admin ai_commerce_admin? @relation(fields: [admin_id], references: [id], onDelete: Cascade)
-  
-  ai_commerce_seller_onboarding ai_commerce_seller_onboarding[]
-  ai_commerce_seller_kyc ai_commerce_seller_kyc[]
-  ai_commerce_seller_profiles ai_commerce_seller_profiles?
-  ai_commerce_stores ai_commerce_stores[]
-  ai_commerce_seller_status_history ai_commerce_seller_status_history[]
-  
-  @@unique([buyer_id, method, created_at])
-  @@index([admin_id, created_at])
-}
-
-/// User address records for shipping, billing, and KYC. Linked to
-/// profile/account; supports historical preservation via snapshots. Stores
-/// all legal info needed for shipping, verification, and analytics. Enforces
-/// country/validation rules.
-///
-/// @namespace Actors
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_user_addresses {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Belonged user's {@link ai_commerce_buyer.id} (for standard buyers).
-  buyer_id String
-  
-  /// Friendly label: 'Home', 'Office', etc.
-  label String?
-  
-  /// ISO 3166-1 alpha-2 country code.
-  country_code String
-  
-  /// State/province/region (per-country format).
-  region String?
-  
-  /// City or locality.
-  city String
-  
-  /// Postal or ZIP code for address.
-  postal_code String
-  
-  /// Primary address line (street, building, details).
-  address_line_1 String
-  
-  /// Secondary line (apartment, suite, etc.).
-  address_line_2 String?
-  
-  /// Flag for primary/default address selection.
-  is_default Boolean
-  
-  /// Address record creation timestamp.
-  created_at DateTime
-  
-  /// Last updated timestamp (for address edits or label change).
-  updated_at DateTime
-  
-  /// Soft delete timestamp for privacy, not physical removal.
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  buyer ai_commerce_buyer @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
-  
-  ai_commerce_user_address_snapshots ai_commerce_user_address_snapshots[]
-  ai_commerce_favorites_addresses ai_commerce_favorites_addresses[]
-  ai_commerce_favorites_address_snapshots ai_commerce_favorites_address_snapshots[]
-  
-  @@unique([buyer_id, label])
-  @@index([country_code, city])
-}
-
-/// Historical, immutable snapshot of each address state (for
-/// audit/evidence). Linked to user address. Used for legal, compliance, or
-/// forensic scenarios (disputes, delivery deviations, etc.). Append-only;
-/// cannot be modified or deleted.
-///
-/// @namespace Actors
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_user_address_snapshots {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// User address reference {@link ai_commerce_user_addresses.id}.
-  user_address_id String
-  
-  /// JSON-encoded snapshot of address data at time of event.
-  snapshot_json String
-  
-  /// Snapshot event type: create, update, delete, dispute.
-  event_type String
-  
-  /// Snapshot creation timestamp.
-  created_at DateTime
-  
-  //----
-  // RELATIONS
-  //----
-  userAddress ai_commerce_user_addresses @relation(fields: [user_address_id], references: [id], onDelete: Cascade)
-  
-  @@index([user_address_id, created_at], map: "ai_commerce_user_address_snapshots_user_address_id_cre_75c4697b")
-}
-
-/// External SSO/federated account links (Google, Apple, Kakao, etc.) to
-/// enable multi-provider authentication for buyers/admins. Retains provider,
-/// unique ID, mapping timestamps, and compliance tracking.
-///
-/// @namespace Actors
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_user_external_accounts {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Linked buyer account for SSO mapping {@link ai_commerce_buyer.id}.
-  buyer_id String
-  
-  /// SSO provider name (google, apple, kakao, etc.).
+  /// OAuth provider name (google, apple, kakao, naver, etc).
   provider String
   
-  /// Provider-issued principal/user id for identity mapping.
-  provider_user_id String
+  /// Unique identifier for the user's external account at the provider (e.g.,
+  /// subject, uid).
+  external_user_id String
   
-  /// When this linkage was registered or last verified.
+  /// Datetime the external account was linked to the customer record.
   linked_at DateTime
   
-  /// SSO record creation timestamp.
+  /// Link status (active, revoked, expired, pending).
+  status String
+  
+  /// Record creation timestamp (UTC ISO-8601).
   created_at DateTime
   
-  /// Soft delete for privacy right-to-be-forgotten.
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  buyer ai_commerce_buyer @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
-  
-  @@unique([provider, provider_user_id], map: "ai_commerce_user_external_accounts_provider_provider_u_9460ef06")
-  @@index([buyer_id])
-}
-
-/// Main profile data for user accounts (buyer/seller role). Stores names,
-/// nickname, avatar, locale, contact, and consent/marketing preferences.
-/// Enables cross-channel profile sharing and personalization with privacy
-/// compliance.
-///
-/// @namespace Actors
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_user_profiles {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// User this profile belongs to {@link ai_commerce_buyer.id}.
-  buyer_id String
-  
-  /// Display nickname or preferred handle for personalization.
-  nickname String
-  
-  /// URI to profile image/avatar.
-  avatar_url String?
-  
-  /// Contact phone (main notification).
-  phone_number String?
-  
-  /// Primary language preference (ISO 639-1).
-  language String?
-  
-  /// User's agreement to receive marketing information.
-  marketing_opt_in Boolean
-  
-  /// Profile record created.
-  created_at DateTime
-  
-  /// Profile last updated.
+  /// Record last modification timestamp (auto-update).
   updated_at DateTime
   
   //----
   // RELATIONS
   //----
-  buyer ai_commerce_buyer @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
   
-  ai_commerce_user_profile_agreements ai_commerce_user_profile_agreements[]
-  ai_commerce_user_profile_snapshots ai_commerce_user_profile_snapshots[]
-  
-  @@unique([buyer_id])
-  @@index([nickname])
+  @@unique([provider, external_user_id])
+  @@unique([shopping_mall_customer_id, provider], map: "shopping_mall_external_accounts_shopping_mall_customer_e5344d5b")
 }
 
-/// User profile platform agreements for compliance: privacy policy
-/// acceptance, marketing consent, terms of service, etc. Historicized for
-/// audit and re-verification events with version/date.
+/// Admin role elevation requests and approvals. Tracks escalation attempts
+/// (customer→admin, seller→admin), workflow status, reviewer,
+/// approval/rejection reasons, evidence snapshot linkage. Used for audit,
+/// compliance, and onboarding processes. {@link shopping_mall_admins}.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_user_profile_agreements {
+model shopping_mall_admin_role_escalations {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Associated user profile {@link ai_commerce_user_profiles.id}.
-  profile_id String
+  /// Admin's {@link shopping_mall_admins.id} targeted by this escalation
+  /// (person escalating or being escalated).
+  shopping_mall_admin_id String
   
-  /// Type: privacy_policy, terms_of_service, marketing, etc.
+  /// ID of requesting user (customer/seller becoming admin) as business
+  /// context. Stored for traceability.
+  requestor_id String
+  
+  /// Type of escalation: customer_to_admin, seller_to_admin, privilege_update,
+  /// etc.
+  escalation_type String
+  
+  /// Escalation workflow status (pending, approved, rejected, cancelled, etc).
+  status String
+  
+  /// ID of the reviewer/admin who processed/approved this escalation. Null if
+  /// pending.
+  reviewed_by_id String?
+  
+  /// Approval/rejection reason or audit context.
+  reason String?
+  
+  /// Escalation request creation timestamp (audit).
+  created_at DateTime
+  
+  /// Last update timestamp for the escalation record.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_admins @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_admin_id], map: "shopping_mall_admin_role_escalations_shopping_mall_adm_7c36de17")
+  
+  @@index([status])
+}
+
+/// Session and connection metadata for actors. Records live and historical
+/// session events (login, logout, IP, device info, auth context) for
+/// compliance, fraud tracking, and risk scoring. Supports per-channel
+/// scoping and audit history. Restricts PII exposure via role checks.
+/// Links to customer, seller, or admin identities (discriminator required
+/// for use).
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_user_connections {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Associated actor's id; refers to customer, seller, or admin depending on
+  /// session context (discriminator or composite required in application
+  /// layer).
+  actor_id String
+  
+  /// Discriminator for actor type (customer, seller, admin) used to resolve
+  /// foreign context. Required.
+  actor_type String
+  
+  /// Channel context for this connection (multi-channel session).
+  channel_id String
+  
+  /// Remote IP address of connection (IPv4/IPv6).
+  ip_address String
+  
+  /// Agent string of browser/app/device. Used for session/connection risk
+  /// analytics.
+  user_agent String?
+  
+  /// Datetime of login/session establishment.
+  login_at DateTime
+  
+  /// Datetime of logout/session end if known; null if session is current/open.
+  logout_at DateTime?
+  
+  /// Auth context info (how login was performed—password, OAuth/google/apple,
+  /// role, device/2FA).
+  auth_context String
+  
+  /// Record creation timestamp (UTC ISO-8601).
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  @@unique([actor_id, actor_type, login_at])
+  @@index([channel_id])
+}
+
+/// Records all user (customer/seller/admin) agreement acceptances with
+/// timestamp, version, and type (Terms, Privacy, Consent, etc). Essential
+/// for legal and regulatory compliance, opt-in/withdrawal, and user
+/// re-consent tracking. Links to actor entity via actor_id/type
+/// discrimination (handled at app layer).
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_user_agreements {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Associated actor's id; refers to customer, seller, or admin depending on
+  /// actor context (application-layer discriminator required).
+  actor_id String
+  
+  /// Discriminator for actor type (customer, seller, admin) for reference
+  /// resolution.
+  actor_type String
+  
+  /// Agreement type—"Terms", "Privacy", "MarketingConsent", etc. Business enum.
   agreement_type String
   
-  /// Agreement version (semver or yy-mm-dd)
+  /// Document version string ("2024-03.1" or similar).
   version String
   
-  /// Timestamp of user agreement action.
-  agreed_at DateTime
+  /// Datetime when agreement was accepted or updated.
+  accepted_at DateTime
   
-  /// Agreement withdrawn timestamp (if revoked).
+  /// Timestamp if user withdraws this agreement (GDPR/opt-out requests).
   withdrawn_at DateTime?
   
+  /// Record creation timestamp (UTC ISO-8601).
+  created_at DateTime
+  
   //----
   // RELATIONS
   //----
-  profile ai_commerce_user_profiles @relation(fields: [profile_id], references: [id], onDelete: Cascade)
-  
-  @@unique([profile_id, agreement_type, version], map: "ai_commerce_user_profile_agreements_profile_id_agreeme_83d8f6a7")
+  @@unique([actor_id, actor_type, agreement_type, version], map: "shopping_mall_user_agreements_actor_id_actor_type_agre_b4b71b79")
 }
 
-/// Read-only historical versioning of user profile states. Immutable
-/// audit/evidence preservation for profile change events (rename, phone,
-/// marketing, etc.). Used for compliance and dispute handling. Can never be
-/// modified or erased for legal conformance.
+/// Historical snapshots of customer entities for audit, compliance, and
+/// evidence retention. Stores point-in-time state of customer record with
+/// all major data for rollback/dispute or compliance requests. Never updated
+/// post-write (append-only), only read for evidence/audit. Links to main
+/// customer entity.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_user_profile_snapshots {
+model shopping_mall_customer_snapshots {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Profile version relates to {@link ai_commerce_user_profiles.id}.
-  profile_id String
+  /// Customer's {@link shopping_mall_customers.id} whose state is snapshotted.
+  shopping_mall_customer_id String
   
-  /// JSON-encoded full profile data at change event or history point.
-  snapshot_json String
+  /// Serialized record of customer state (JSON or structured string).
+  /// Immutable. Includes PII as required by compliance.
+  snapshot_data String
   
-  /// Event (profile_created, profile_updated, phone_changed, etc.).
-  event_type String
-  
-  /// Snapshot recording time.
+  /// Snapshot creation time (UTC ISO-8601).
   created_at DateTime
   
   //----
   // RELATIONS
   //----
-  profile ai_commerce_user_profiles @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
   
-  @@index([profile_id, created_at])
+  @@index([shopping_mall_customer_id])
 }
 
-/// Audit log for all buyer/admin/seller actions: login, profile change,
-/// authentication event, privilege escalation, or privacy data access.
-/// Forensically valuable, provides IP/device chronology. Strictly
-/// append-only and never deletable by user.
+/// Historical snapshots of seller entities for audit/compliance. Stores
+/// point-in-time state of seller account, including profile, status, KYC at
+/// snapshot time. Used for rollback, dispute, or evidence analytics.
+/// Append-only. Linked to main seller entity.
 ///
 /// @namespace Actors
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_audit_logs_user {
+model shopping_mall_seller_snapshots {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Action performed by or on behalf of this buyer {@link
-  /// ai_commerce_buyer.id}.
-  buyer_id String?
+  /// Seller's {@link shopping_mall_sellers.id} whose state is snapshotted.
+  shopping_mall_seller_id String
   
-  /// Action performed by admin {@link ai_commerce_admin.id}.
-  admin_id String?
+  /// Serialized record (JSON/structured string) of seller at snapshot time.
+  /// Immutable. Includes all relevant fields for audit, rollback, or evidence.
+  snapshot_data String
   
-  /// Action/event code: login, logout, profile_edit, escalation, suspension,
-  /// etc.
-  action_type String
-  
-  /// Entity type: buyer, admin, seller, profile, address, etc.
-  subject_type String
-  
-  /// UUID of entity affected (account, profile, address, etc.).
-  subject_id String
-  
-  /// IP address from which action was performed.
-  ip_address String?
-  
-  /// Device/fingerprint used in the action event.
-  device_info String?
-  
-  /// Timestamp when action occurred (audit event time).
+  /// Snapshot creation time (UTC ISO-8601).
   created_at DateTime
   
   //----
   // RELATIONS
   //----
-  buyer ai_commerce_buyer? @relation(fields: [buyer_id], references: [id], onDelete: Cascade)
-  admin ai_commerce_admin? @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_sellers @relation(fields: [shopping_mall_seller_id], references: [id], onDelete: Cascade)
   
-  @@index([buyer_id, action_type])
-  @@index([admin_id, action_type])
-  @@index([created_at])
+  @@index([shopping_mall_seller_id])
+}
+
+/// Historical snapshots of admin accounts for compliance, rollback, and
+/// evidence. Stores admin state at time of change/event, retained for audit.
+/// Append-only; not modified except for legal erasure. Linked to admin
+/// entity.
+///
+/// @namespace Actors
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_admin_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Admin's {@link shopping_mall_admins.id} whose state is snapshotted.
+  shopping_mall_admin_id String
+  
+  /// Complete serialized record (JSON/etc) of admin at snapshot time.
+  /// Immutable.
+  snapshot_data String
+  
+  /// Snapshot creation time (UTC ISO-8601).
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_admins @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_admin_id])
 }

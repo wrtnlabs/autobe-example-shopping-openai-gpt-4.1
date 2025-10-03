@@ -1,0 +1,205 @@
+/// Primary attachment record containing core file meta-data and high-level
+/// auditability. Represents the business-unique file with links to versioned
+/// content, and supports logical deletion and evidence preservation. Shared
+/// by all business domains via generic entity associations. References
+/// {@link shopping_mall_attachment_versions} for actual file versions. All
+/// access and evidence policies enforced at this level.
+///
+/// @namespace Attachments
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_attachments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Original or user-assigned file name including extension, used for display
+  /// and file tracking.
+  filename String
+  
+  /// File extension including the dot (e.g., .jpg, .pdf) for rapid filtering
+  /// and display logic.
+  file_extension String
+  
+  /// MIME type for uploaded file (e.g., image/png, application/pdf),
+  /// determines handling/serving logic.
+  mime_type String
+  
+  /// Size of file in bytes. Used for storage/cost calculations, quota
+  /// enforcement.
+  size_bytes Int
+  
+  /// Direct storage URL or CDN-cached URI for download access, with compliance
+  /// and geo-sensitive policies.
+  server_url String
+  
+  /// Whether this attachment is public (true) or access-restricted (false).
+  /// Used for secure vs. public access control.
+  public_accessible Boolean
+  
+  /// Business-defined string tag describing role, group, or domain-specific
+  /// access scope (e.g., 'admin_only', 'seller', 'customer', 'audit_only').
+  permission_scope String?
+  
+  /// Describes the business module or origin context for system-generated
+  /// clarity (e.g. 'product', 'board_post', 'order', etc).
+  logical_source String?
+  
+  /// MD5 or other strong hash for file integrity validation and dedup checks.
+  hash_md5 String
+  
+  /// Optional human-readable note or context field for file, visible in file
+  /// managers or audit trails.
+  description String?
+  
+  /// Date and time when the attachment was registered/uploaded.
+  created_at DateTime
+  
+  /// Timestamp for last modification (meta or any versioning event). Required
+  /// for audit and review.
+  updated_at DateTime
+  
+  /// Time when soft delete was performed (null if still active). Required for
+  /// logical deletion and audit compliance.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  shopping_mall_product_attachment_links shopping_mall_product_attachment_links[]
+  shopping_mall_post_attachments shopping_mall_post_attachments[]
+  shopping_mall_attachment_versions shopping_mall_attachment_versions[]
+  shopping_mall_entity_attachment_links shopping_mall_entity_attachment_links[]
+  
+  @@unique([hash_md5])
+  @@index([mime_type])
+  @@index([created_at])
+  @@index([deleted_at])
+}
+
+/// Versioned content for attachments. Tracks each upload/modification, with
+/// cryptographic integrity, CDN/file URL, uploader, and metadata. Ensures
+/// complete file trail for evidence, supporting legal rollback and
+/// role-based audit access. Links to main attachment via {@link
+/// shopping_mall_attachments.id}. Supports logical deletion and time-stamped
+/// audit. Each version is immutable.
+///
+/// @namespace Attachments
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_attachment_versions {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged master attachment's {@link shopping_mall_attachments.id}.
+  shopping_mall_attachment_id String
+  
+  /// Attachment version (1-based sequence). Increments for each new file
+  /// upload/revision.
+  version_number Int
+  
+  /// User or system ID of actor who uploaded/replaced this version. Must
+  /// reference customer, seller, or admin in upstream user tables.
+  uploader_id String
+  
+  /// Captured at time of upload, may differ from current name if renamed later.
+  filename String
+  
+  /// Extension at time of this upload, supports historical context for audit
+  /// or filter.
+  file_extension String
+  
+  /// Mime type of file version for compliance and context.
+  mime_type String
+  
+  /// File size in bytes for this version at upload; never changes.
+  size_bytes Int
+  
+  /// Permanent CDN/URI location for this file version, required for evidence
+  /// chain.
+  server_url String
+  
+  /// Strong hash, guarantees cryptographic integrity checks for versioned file.
+  hash_md5 String
+  
+  /// When this file version was uploaded, required for full audit trail.
+  created_at DateTime
+  
+  /// Soft deletion time. Null if not deleted. For evidence lifecycle
+  /// management.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  attachment shopping_mall_attachments @relation(fields: [shopping_mall_attachment_id], references: [id], onDelete: Cascade)
+  
+  @@unique([shopping_mall_attachment_id, version_number], map: "shopping_mall_attachment_versions_shopping_mall_attach_f8720d08")
+  @@unique([hash_md5])
+  @@index([created_at])
+  @@index([deleted_at])
+}
+
+/// Associates any business entity (via entity UUID and type/discriminator)
+/// to an attachment. Enables attachment/evidence linkage to products, posts,
+/// orders, reviews, or any arbitrary or future entity. Supports audit,
+/// permission, and evidence management. Includes meta fields for entity
+/// type, user context, purpose, and logical deletion.
+///
+/// @namespace Attachments
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_entity_attachment_links {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Linked attachment's {@link shopping_mall_attachments.id}.
+  shopping_mall_attachment_id String
+  
+  /// String discriminator (e.g., 'product', 'order', 'review', 'board_post',
+  /// etc.) allowing universal linkage.
+  entity_type String
+  
+  /// UUID primary key of the attached business entity. Must always reference a
+  /// valid business object in the system, but no direct FK for global
+  /// extensibility.
+  entity_id String
+  
+  /// User who performed or authorized the link. Supports audit trails and
+  /// role-based control.
+  linked_by_user_id String
+  
+  /// Describes context or purpose of attachment (e.g., 'evidence',
+  /// 'thumbnail', 'document').
+  purpose String?
+  
+  /// Comma-separated string of role/group codes having access (e.g.,
+  /// 'admin,seller,customer'). Used for permission/notification logic. Null
+  /// for universal visibility.
+  visible_to_roles String?
+  
+  /// Link creation time/audit beginning.
+  created_at DateTime
+  
+  /// Soft deletion record for link (null = still active). Required for logical
+  /// audit/compliance.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  attachment shopping_mall_attachments @relation(fields: [shopping_mall_attachment_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_attachment_id], map: "shopping_mall_entity_attachment_links_shopping_mall_at_3d62d336")
+  
+  @@unique([entity_type, entity_id, shopping_mall_attachment_id], map: "shopping_mall_entity_attachment_links_entity_type_enti_89f46af0")
+  @@index([entity_type, entity_id])
+  @@index([linked_by_user_id])
+  @@index([created_at])
+  @@index([deleted_at])
+}

@@ -3,39 +3,46 @@ import { PlainFetcher } from "@nestia/fetcher/lib/PlainFetcher";
 import typia from "typia";
 import { NestiaSimulator } from "@nestia/fetcher/lib/NestiaSimulator";
 
-import { IAiCommerceAdmin } from "../../../structures/IAiCommerceAdmin";
+import { IShoppingMallAdmin } from "../../../structures/IShoppingMallAdmin";
 
 /**
- * Register a new admin account (ai_commerce_admin table) for platform/internal
- * use only.
+ * Register (join) a new admin account in the shopping_mall_admins table with
+ * full compliance, KYC, and audit initialization.
  *
- * This API registers a new administrator account on the aiCommerce platform
- * (ai_commerce_admin table).
+ * This API endpoint allows for direct registration (onboarding) of new admin
+ * users in the shopping mall platform, creating an entry in the
+ * shopping_mall_admins table. The operation ensures all required fields—email,
+ * password_hash, name, status, and kyc_status—are provided and valid per
+ * schema. KYC/identity logic is enforced; status and audit fields auto-populate
+ * for compliance tracking.
  *
- * Paragraph 1: Use for platform-controlled internal provisioning (not public
- * self-registration), as all admin actions have platform-wide impact according
- * to the admin role definition and schema comment.
+ * Strict validation ensures the uniqueness of email (enforced via schema) and
+ * the safe storage of hashed credentials, as no plain password is ever stored.
+ * Upon successful registration, the system creates both the administrator
+ * record and the initial session context, returning JWT access and refresh
+ * tokens in accordance with platform IAM and audit requirements.
  *
- * Paragraph 2: The request body references IAiCommerceAdmin.IJoin and expects
- * unique email, secure password, and initial status fields. The
- * ai_commerce_admin schema enforces email uniqueness and proper password hash
- * storage.
+ * Admin registration differs from member (customer) and seller flows: it does
+ * not allow role escalation (customer→admin) and requires explicit direct
+ * onboarding, usually via restricted admin interface. The request has no
+ * dependencies to other business APIs but applies heightened security
+ * controls—server-side input validation, strong password policies, and
+ * immediate compliance audit entry in the event log.
  *
- * Paragraph 3: Upon successful registration, administrator authentication is
- * established via entry into ai_commerce_user_authentications with
- * session/security metadata, leveraging the system's JWT/token infrastructure.
+ * Security and audit are tightly integrated, with every registration event
+ * triggering a new entry in both shopping_mall_admin_snapshots and system-wide
+ * audit logs. Any registration denial or failure is logged with detailed error
+ * context, preventing ambiguous or untracked failures.
  *
- * Paragraph 4: Only internal or automated system actors should execute this
- * endpoint. Security must be enforced at the controller/service level to block
- * any non-authorized invocations. Error handling covers existing email conflict
- * and input validation.
- *
- * Paragraph 5: Typical onboarding flows chain with admin login and session
- * refresh using the respective authentication endpoints. All administrative
- * actions are audit-logged as required by the business compliance layer.
+ * Related operations include admin login and refresh. This operation must be
+ * used with care—ideally automated, not public-facing, and only invoked by
+ * system integrators or platform staff. Must not allow re-registration of
+ * existing admins and should limit exposure to brute force or enumeration
+ * attacks.
  *
  * @param props.connection
- * @param props.body Admin registration input (email, secure password, status).
+ * @param props.body Admin registration info: email, password_hash, name, KYC
+ *   status, etc.
  * @setHeader token.access Authorization
  *
  * @path /auth/admin/join
@@ -70,11 +77,11 @@ export async function join(
 }
 export namespace join {
   export type Props = {
-    /** Admin registration input (email, secure password, status). */
-    body: IAiCommerceAdmin.IJoin;
+    /** Admin registration info: email, password_hash, name, KYC status, etc. */
+    body: IShoppingMallAdmin.IJoin;
   };
-  export type Body = IAiCommerceAdmin.IJoin;
-  export type Response = IAiCommerceAdmin.IAuthorized;
+  export type Body = IShoppingMallAdmin.IJoin;
+  export type Response = IShoppingMallAdmin.IAuthorized;
 
   export const METADATA = {
     method: "POST",
@@ -90,8 +97,8 @@ export namespace join {
   } as const;
 
   export const path = () => "/auth/admin/join";
-  export const random = (): IAiCommerceAdmin.IAuthorized =>
-    typia.random<IAiCommerceAdmin.IAuthorized>();
+  export const random = (): IShoppingMallAdmin.IAuthorized =>
+    typia.random<IShoppingMallAdmin.IAuthorized>();
   export const simulate = (
     connection: IConnection,
     props: join.Props,
@@ -118,36 +125,36 @@ export namespace join {
 }
 
 /**
- * Authenticate an admin user and issue tokens (ai_commerce_admin table).
+ * Authenticate an admin and issue JWT tokens matching
+ * IShoppingMallAdmin.IAuthorized; entry must be active, KYC-verified, and not
+ * soft-deleted.
  *
- * Login/authentication endpoint for administrator users on the aiCommerce
- * platform (ai_commerce_admin table).
+ * Allows an admin to log in to the platform by submitting credentials (email,
+ * password), which are matched against shopping_mall_admins. The system
+ * verifies hashed password, account status, and KYC_state. Upon success, it
+ * issues JWT access/refresh tokens, packed in IShoppingMallAdmin.IAuthorized,
+ * and creates a new admin session entry. Only accounts with active
+ * status/verified KYC are accepted.
  *
- * Paragraph 1: Accepts admin email and password as specified in
- * IAiCommerceAdmin.ILogin. Verifies credentials using the admin schema's
- * password_hash and status fields.
+ * Audit trails and security snapshots are recorded for every login attempt,
+ * including failed attempts for compliance and fraud analytics. This procedure
+ * is distinct from seller and customer login, enforcing stricter KYC and
+ * account state rules—admins must not be soft-deleted, pending, or withdrawn.
+ * Brute force protection and rate limiting apply.
  *
- * Paragraph 2: Upon successful match, records a new
- * ai_commerce_user_authentications entry and issues access/refresh tokens
- * through JWT/session infrastructure. Suspended/deleted status or invalid
- * credentials result in error responses as required by the compliance logic.
+ * All input credentials are validated strictly to the schema. If authentication
+ * fails, or if the admin account is suspended/pending/withdrawn, the response
+ * is a clear error, and the event is logged in the audit chain. Success
+ * triggers session and token issuance and records the event for compliance
+ * traceability.
  *
- * Paragraph 3: All login attempts are audit-logged, leveraging the
- * ai_commerce_audit_logs_user schema for evidentiary and compliance
- * enforcement. Multiple failed attempts may trigger lockout or security
- * notifications.
- *
- * Paragraph 4: Authorization tokens and account info are returned
- * (IAiCommerceAdmin.IAuthorized). Session policies (expiry, refresh) are
- * governed by the admin authentication policy determined in platform
- * configuration.
- *
- * Paragraph 5: To maintain secure privileged access, this operation is intended
- * for administrator accounts only; invoke join for registration and refresh for
- * session renewal as part of the overall authentication workflow lifecycle.
+ * Related endpoints: join (admin registration) and refresh (token renewal).
+ * This login is only for admin role and accepts only direct credentials—not
+ * OAuth or federated accounts.
  *
  * @param props.connection
- * @param props.body Admin login input (email and password).
+ * @param props.body Admin login payload: email and password as per
+ *   IShoppingMallAdmin.ILogin.
  * @setHeader token.access Authorization
  *
  * @path /auth/admin/login
@@ -182,11 +189,14 @@ export async function login(
 }
 export namespace login {
   export type Props = {
-    /** Admin login input (email and password). */
-    body: IAiCommerceAdmin.ILogin;
+    /**
+     * Admin login payload: email and password as per
+     * IShoppingMallAdmin.ILogin.
+     */
+    body: IShoppingMallAdmin.ILogin;
   };
-  export type Body = IAiCommerceAdmin.ILogin;
-  export type Response = IAiCommerceAdmin.IAuthorized;
+  export type Body = IShoppingMallAdmin.ILogin;
+  export type Response = IShoppingMallAdmin.IAuthorized;
 
   export const METADATA = {
     method: "POST",
@@ -202,8 +212,8 @@ export namespace login {
   } as const;
 
   export const path = () => "/auth/admin/login";
-  export const random = (): IAiCommerceAdmin.IAuthorized =>
-    typia.random<IAiCommerceAdmin.IAuthorized>();
+  export const random = (): IShoppingMallAdmin.IAuthorized =>
+    typia.random<IShoppingMallAdmin.IAuthorized>();
   export const simulate = (
     connection: IConnection,
     props: login.Props,
@@ -230,31 +240,33 @@ export namespace login {
 }
 
 /**
- * Refresh admin JWT session tokens (admin authentication, ai_commerce_admin
- * table).
+ * Admin JWT refresh: Validates refresh token and issues new JWT access/refresh
+ * tokens to compliant, KYC-verified admin.
  *
- * Allows session/token refresh for authenticated administrators on the
- * aiCommerce platform using valid refresh tokens.
+ * Allows an admin with a valid refresh token to renew their JWT access/refresh
+ * tokens. This operation checks the validity of the presented refresh token,
+ * the admin's status (must be active and not soft-deleted), and compliance with
+ * current session security policies. When successful, it issues new tokens and
+ * records the renewal in both admin snapshots and system audit logs for
+ * compliance and traceability.
  *
- * Paragraph 1: Accepts the refresh token as per IAiCommerceAdmin.IRefresh,
- * validating it for existence, expiry, and linkage to an active
- * ai_commerce_user_authentications record.
+ * Unlike customer/seller token refresh, admin refresh includes extra checks for
+ * KYC/identity status and proper status (not revoked/suspended/withdrawn). Only
+ * valid, non-expired refresh tokens issued for the admin account are accepted;
+ * all status and KYC checks are enforced prior to token renewal.
  *
- * Paragraph 2: Admin account status is checked via the ai_commerce_admin
- * schema; suspended/deleted statuses are blocked from refreshing.
+ * Security logs and compliance events are written for both successful and
+ * unsuccessful attempts, with audit trail across all relevant session state
+ * transitions. All input and output match schema definitions and the
+ * IShoppingMallAdmin.IAuthorized DTO contract.
  *
- * Paragraph 3: On success, issues new access/refresh tokens and returns updated
- * IAiCommerceAdmin.IAuthorized payload for privileged admin session.
- *
- * Paragraph 4: All refresh attempts (success/failure) are logged in the
- * ai_commerce_audit_logs_user table for compliance and traceability.
- *
- * Paragraph 5: This endpoint is to be invoked by UI or automation just before
- * session expiry and integrates with the login/join endpoints for full
- * authentication lifecycle management for admin users.
+ * Related endpoints: admin join (registration) and login (authenticate/issue
+ * new tokens). This endpoint is not for OAuth or anonymous session
+ * renewal—admin credential context is always required.
  *
  * @param props.connection
- * @param props.body Refresh token and session info for admin account.
+ * @param props.body Payload containing the refresh token as per
+ *   IShoppingMallAdmin.IRefresh.
  * @setHeader token.access Authorization
  *
  * @path /auth/admin/refresh
@@ -289,11 +301,14 @@ export async function refresh(
 }
 export namespace refresh {
   export type Props = {
-    /** Refresh token and session info for admin account. */
-    body: IAiCommerceAdmin.IRefresh;
+    /**
+     * Payload containing the refresh token as per
+     * IShoppingMallAdmin.IRefresh.
+     */
+    body: IShoppingMallAdmin.IRefresh;
   };
-  export type Body = IAiCommerceAdmin.IRefresh;
-  export type Response = IAiCommerceAdmin.IAuthorized;
+  export type Body = IShoppingMallAdmin.IRefresh;
+  export type Response = IShoppingMallAdmin.IAuthorized;
 
   export const METADATA = {
     method: "POST",
@@ -309,8 +324,8 @@ export namespace refresh {
   } as const;
 
   export const path = () => "/auth/admin/refresh";
-  export const random = (): IAiCommerceAdmin.IAuthorized =>
-    typia.random<IAiCommerceAdmin.IAuthorized>();
+  export const random = (): IShoppingMallAdmin.IAuthorized =>
+    typia.random<IShoppingMallAdmin.IAuthorized>();
   export const simulate = (
     connection: IConnection,
     props: refresh.Props,

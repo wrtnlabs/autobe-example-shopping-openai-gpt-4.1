@@ -1,443 +1,259 @@
-/// Represents a sales channel (e.g., web, mobile app, partner portal) within
-/// the commerce platform. Supports configuration for unique business rules,
-/// localization, activation, and channel-specific analytics. Channels act as
-/// the top-level context for sections, categories, and templates, and link
-/// to analytics and settings via FKs.
+/// Defines logical shopping mall channels (distinct sales
+/// domains/applications/brands) serving as the top-level context for all
+/// subsequent entities. Channel is the anchor for section, category,
+/// catalog, order, and configuration scoping. Each channel may represent a
+/// separate storefront, brand, or localized instance.
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_channels {
+model shopping_mall_channels {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Unique business identifier code for the channel. Cannot be changed after
-  /// creation.
+  /// Unique business code for the channel (e.g., 'main', 'korea', 'brandX').
+  /// Used for API routing and business rule scoping.
   code String
   
-  /// Human-readable channel name (e.g., 'Korea Main Portal').
+  /// Human-readable name of the channel. Used in admin UI and business
+  /// communication.
   name String
   
-  /// Default locale (e.g., 'ko-KR', 'en-US'). Defines language and formatting
-  /// for this channel.
-  locale String
+  /// General description and business context of the channel.
+  description String?
   
-  /// Whether the channel is currently active and visible for business
-  /// operations.
-  is_active Boolean
-  
-  /// Current business-specific status or workflow stage for the channel (e.g.,
-  /// 'normal', 'pending audit', 'archived').
-  business_status String
-  
-  /// Timestamp for channel creation.
+  /// Channel creation time.
   created_at DateTime
   
-  /// Timestamp for last channel update.
+  /// Last update time of the channel info.
   updated_at DateTime
   
-  /// Soft delete field for logical removal; null if active.
+  /// Channel deletion time (soft delete).
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  ai_commerce_channel_settings ai_commerce_channel_settings[]
-  ai_commerce_sections ai_commerce_sections[]
-  ai_commerce_categories ai_commerce_categories[]
-  ai_commerce_analytics_channels ai_commerce_analytics_channels?
-  ai_commerce_orders ai_commerce_orders[]
+  shopping_mall_sections shopping_mall_sections[]
+  shopping_mall_channel_categories shopping_mall_channel_categories[]
+  shopping_mall_configurations shopping_mall_configurations[]
+  shopping_mall_customers shopping_mall_customers[]
+  shopping_mall_products shopping_mall_products[]
+  shopping_mall_carts shopping_mall_carts[]
+  shopping_mall_orders shopping_mall_orders[]
+  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
+  shopping_mall_boards shopping_mall_boards[]
   
   @@unique([code])
-  @@index([locale])
-  @@index([is_active])
+  @@index([created_at])
 }
 
-/// Holds additional configuration properties for each channel, such as
-/// custom branding, external endpoints, feature toggles, or advanced rules.
-/// Each row references a channel, providing extensibility and modular
-/// configuration management. Managed primarily by administrators.
+/// Logical groupings within a channel (e.g. 'Best Deal', 'International',
+/// 'Seasonal'), referencing the owning channel. Used for merchandising,
+/// curation, and business rules. Hierarchically below channels, but may span
+/// multiple business domains.
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_channel_settings {
+model shopping_mall_sections {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Parent channel's {@link ai_commerce_channels.id}. Establishes a 1:N
-  /// relationship to support multiple settings per channel.
-  ai_commerce_channel_id String
+  /// Belonged channel's {@link shopping_mall_channels.id}.
+  shopping_mall_channel_id String
   
-  /// Configuration key name (e.g., 'feature_discount_enabled', 'theme_color').
-  key String
-  
-  /// Value for configuration key. May be text, URI, or serialized settings
-  /// (depending on business logic).
-  value String
-  
-  /// Timestamp when setting was created.
-  created_at DateTime
-  
-  /// Timestamp when setting was last updated.
-  updated_at DateTime
-  
-  /// Soft delete for logical removal; null if active.
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  channel ai_commerce_channels @relation(fields: [ai_commerce_channel_id], references: [id], onDelete: Cascade)
-  
-  @@unique([ai_commerce_channel_id, key])
-}
-
-/// Defines sections or merchandising areas within a channel (e.g.,
-/// 'Electronics', 'Flash Deals'). Represents logical groupings beneath
-/// channels for product curation, configuration, and personalized displays.
-/// Used by both admin and AI systems. Hierarchically independent of
-/// categories.
-///
-/// @namespace Systematic
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_sections {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Parent channel's {@link ai_commerce_channels.id}. Each section belongs to
-  /// one channel.
-  ai_commerce_channel_id String
-  
-  /// Unique code for section per channel. Used for internal references, must
-  /// be unique within the parent channel.
+  /// Unique section code, scoped to channel, for business identification
+  /// (e.g., 'home', 'event', 'bestseller').
   code String
   
-  /// Display name for the section (e.g., 'Deals', 'Main Banner').
+  /// Section display name as seen in business UI or user application.
   name String
   
-  /// Section operational status; inactive sections are hidden from users.
-  is_active Boolean
+  /// Short description of the section's purpose.
+  description String?
   
-  /// Business workflow status for the section (e.g., 'normal', 'archived',
-  /// 'pending').
-  business_status String
+  /// Integer order for listing sections within a channel.
+  display_order Int
   
-  /// Display sort order for this section within the channel.
-  sort_order Int
-  
-  /// Creation timestamp for the section.
+  /// Section creation time.
   created_at DateTime
   
-  /// Last modification timestamp for the section.
+  /// Section update time.
   updated_at DateTime
   
-  /// Soft delete timestamp for logical removal; null if section is active.
+  /// Section deletion time (soft delete); remains for audit/tracking.
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  channel ai_commerce_channels @relation(fields: [ai_commerce_channel_id], references: [id], onDelete: Cascade)
+  channel shopping_mall_channels @relation(fields: [shopping_mall_channel_id], references: [id], onDelete: Cascade)
   
-  ai_commerce_product_section_bindings ai_commerce_product_section_bindings[]
+  shopping_mall_sellers shopping_mall_sellers[]
+  shopping_mall_products shopping_mall_products[]
+  shopping_mall_carts shopping_mall_carts[]
+  shopping_mall_orders shopping_mall_orders[]
+  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
+  shopping_mall_boards shopping_mall_boards[]
   
-  @@unique([ai_commerce_channel_id, code])
-  @@index([is_active])
-  @@index([sort_order])
+  @@unique([shopping_mall_channel_id, code])
+  @@index([shopping_mall_channel_id, display_order], map: "shopping_mall_sections_shopping_mall_channel_id_displa_d6778c49")
 }
 
-/// Defines product categories as a tree structure, supporting arbitrary
-/// hierarchy depths. Categories are mapped to channels and used for
-/// discovery, filtering, analytics, and business rule enforcement. Preserves
-/// referential integrity for parent-child relationships and supports soft
-/// deletion and audit trails.
+/// Hierarchical categories defining product or section classification within
+/// a given channel. Supports parent-child nesting for multi-level trees.
+/// Used for search, browse, campaign targeting, and rule scoping. Each
+/// belongs to a channel and can reference a parent category (self-relation).
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_categories {
+model shopping_mall_channel_categories {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Parent channel for this category. Reference to {@link
-  /// ai_commerce_channels.id}.
-  ai_commerce_channel_id String
+  /// Channel to which the category belongs. {@link shopping_mall_channels.id}.
+  shopping_mall_channel_id String
   
-  /// Optional self-reference to parent category (for hierarchy). Null for
-  /// top-level categories. {@link ai_commerce_categories.id}.
+  /// Optional reference to parent category for child/descendant relationships.
+  /// {@link shopping_mall_channel_categories.id}.
   parent_id String?
   
-  /// Unique category code per channel, used for internal mapping.
+  /// Unique category code scoped to channel (and maybe parent). Used in
+  /// routing and business logic.
   code String
   
-  /// Display name for the category (e.g., 'Accessories').
+  /// Human-readable name of the category.
   name String
   
-  /// Hierarchy depth level (0 for root/top-level).
-  level Int
+  /// Description of the category purpose, contents, or intended merchandise.
+  description String?
   
-  /// Order within siblings for display purposes.
-  sort_order Int
+  /// Sort order for UI rendering or admin lists within a parent or channel.
+  display_order Int
   
-  /// Indicates whether the category is active/visible.
-  is_active Boolean
-  
-  /// Business or workflow status (e.g., 'active', 'archived').
-  business_status String
-  
-  /// Creation timestamp for the category.
+  /// Category creation time.
   created_at DateTime
   
-  /// Last modification timestamp for the category.
+  /// Last update to the category information.
   updated_at DateTime
   
-  /// Soft delete for logical removal; null if active.
+  /// Category deletion time (soft delete).
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  channel ai_commerce_channels @relation(fields: [ai_commerce_channel_id], references: [id], onDelete: Cascade)
-  parent ai_commerce_categories? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  channel shopping_mall_channels @relation(fields: [shopping_mall_channel_id], references: [id], onDelete: Cascade)
+  parent shopping_mall_channel_categories? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
   
-  recursive ai_commerce_categories[] @relation("recursive")
-  ai_commerce_product_category_bindings ai_commerce_product_category_bindings[]
+  recursive shopping_mall_channel_categories[] @relation("recursive")
+  shopping_mall_products shopping_mall_products[]
+  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
   
-  @@unique([ai_commerce_channel_id, code])
+  @@unique([shopping_mall_channel_id, code], map: "shopping_mall_channel_categories_shopping_mall_channel_da57ae32")
   @@index([parent_id])
+  @@index([display_order])
 }
 
-/// Reusable section configuration templates, allowing administrators to
-/// rapidly define and propagate merchandising/grouping setup across
-/// channels. Templates capture configuration presets, default status, and
-/// metadata for AI-powered or manual section setup.
+/// Stores configuration blob(s) for channels or global use (e.g. feature
+/// flags, legal text, social links, settings). Each config row may be
+/// targeted at a channel, be global, or serve different configuration
+/// classes. Version-managed by snapshots for audit and recovery.
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_section_templates {
+model shopping_mall_configurations {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Unique template identifier code.
-  code String
+  /// Optional FK channel scope for this configuration. If null, applies
+  /// globally or to all channels.
+  shopping_mall_channel_id String?
   
-  /// Human-friendly name of the section template.
-  name String
+  /// Business-level code or category for this configuration (e.g.,
+  /// 'feature_flag_shipping', 'legal_policy_en').
+  key String
   
-  /// Serialized configuration data (JSON or similar) representing the
-  /// structure and rules of the template.
-  template_data String
+  /// The configuration blob; may be JSON, text, or rendered markdown/HTML,
+  /// etc. Format varies by key.
+  value String
   
-  /// Marks templates as system default for rapid section creation.
-  is_default Boolean
+  /// Revision number for the configuration. Incremented with each new
+  /// snapshot/version.
+  revision Int
   
-  /// Current business or operational workflow status for the template.
-  business_status String
+  /// Description of the setting's business meaning.
+  description String?
   
-  /// Timestamp for template creation.
+  /// Configuration row creation time.
   created_at DateTime
   
-  /// Timestamp of last template update.
+  /// Last update time of this configuration value.
   updated_at DateTime
   
-  /// Soft delete; null for active templates.
+  /// Soft deletion time for the configuration row.
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  @@unique([code])
+  channel shopping_mall_channels? @relation(fields: [shopping_mall_channel_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_channel_configuration_snapshots shopping_mall_channel_configuration_snapshots[]
+  
+  @@unique([shopping_mall_channel_id, key])
+  @@index([key])
 }
 
-/// Reusable configuration templates for category trees or segments. Enable
-/// cross-channel or multi-project reuse, bulk creation, and rapid curation
-/// of category schemas. Serves as blueprint for consistent category
-/// organization and AI/analytical applications.
+/// Append-only historical preservation of all configuration changes for
+/// channel/global configuration records. Used to audit, rollback, or prove
+/// compliance for configuration events. Each snapshot references the
+/// configuration, storing its previous state, revision, and change timing.
+/// Immutable after insert.
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_category_templates {
+model shopping_mall_channel_configuration_snapshots {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Unique template identifier for the category template.
-  code String
+  /// Target configuration whose state was snapshotted. {@link
+  /// shopping_mall_configurations.id}.
+  shopping_mall_configuration_id String
   
-  /// Human-readable name for the template (e.g., 'Electronics Default',
-  /// 'Fashion Segments').
-  name String
+  /// The revision number when this snapshot was taken (immutable for
+  /// historical record).
+  revision Int
   
-  /// Serialized configuration data for the category tree structure (e.g., JSON
-  /// blob).
-  template_data String
+  /// Business configuration key being snapshotted, redundant for full history
+  /// traceability.
+  key String
   
-  /// True if this template is the default offering for new category setups.
-  is_default Boolean
+  /// Configuration value (blob/text/JSON) at the time of this snapshot.
+  value String
   
-  /// Operational workflow or approval status of the template.
-  business_status String
-  
-  /// Timestamp of template creation.
-  created_at DateTime
-  
-  /// Last updated timestamp for this template.
-  updated_at DateTime
-  
-  /// Soft delete for logical removal; null if active.
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  @@unique([code])
-}
-
-/// Template entities allowing business administrators to author, version,
-/// and deploy business rules or logic (e.g., eligibility, promotional,
-/// compliance rules). Templates may be attached to channels, sections, or
-/// categories, providing modular, versioned logic for core flows. Records
-/// always have temporal fields and are versioned for audit.
-///
-/// @namespace Systematic
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_business_rule_templates {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Business rule template code (unique).
-  code String
-  
-  /// Display name of the template.
-  name String
-  
-  /// Semantic version number for rule template iteration.
-  version Int
-  
-  /// Serialized rules in config format (JSON/YAML/business rule DSL).
-  template_data String
-  
-  /// Status (active, retired, pending approval, etc.) for business workflow.
-  business_status String
-  
-  /// Timestamp for when this rule template was first authored.
-  created_at DateTime
-  
-  /// Timestamp for most recent template update.
-  updated_at DateTime
-  
-  /// Soft delete timestamp for logical removal; null if template is active.
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  @@unique([code, version])
-}
-
-/// Centralized system-level audit trail, recording all critical
-/// configuration events, administrative actions, rule/template updates, and
-/// access logs at the core configuration (systematic) layer. Each log entry
-/// includes actor identification, event type, data snapshot, and timestamp
-/// for legal and forensic evidence.
-///
-/// @namespace Systematic
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_audit_logs_system {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Type of event or action (e.g., 'CREATE_CHANNEL', 'EDIT_CATEGORY',
-  /// 'DELETE_TEMPLATE').
-  event_type String
-  
-  /// Reference to the user/admin/automation that performed the action.
-  actor_id String
-  
-  /// Table in which the audit event occurred.
-  target_table String
-  
-  /// ID of the affected record in the target table.
-  target_id String
-  
-  /// JSON snapshot of the entity's state before the change/event; may be empty
-  /// for CREATE events.
-  before String?
-  
-  /// JSON snapshot of the entity's state after the change/event; may be empty
-  /// for DELETE events.
-  after String?
-  
-  /// Timestamp for the audit event (creation of the log entry).
+  /// Snapshot creation time (point of version preservation).
   created_at DateTime
   
   //----
   // RELATIONS
   //----
-  @@index([event_type])
-  @@index([actor_id])
-  @@index([target_table, target_id])
-}
-
-/// Aggregated analytics/statistics for each channel, supporting performance
-/// dashboards, management reporting, and business intelligence use cases.
-/// May include denormalized, materialized fields for rapid analytics.
-/// Populated and refreshed via batch or streaming ETL.
-///
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model ai_commerce_analytics_channels {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
+  configuration shopping_mall_configurations @relation(fields: [shopping_mall_configuration_id], references: [id], onDelete: Cascade)
   
-  /// FK to {@link ai_commerce_channels.id}. Indicates channel with which these
-  /// analytics are associated.
-  ai_commerce_channel_id String
-  
-  /// Date/time partition for aggregated statistics.
-  stat_date DateTime
-  
-  /// Total number of orders placed on the channel in the reporting window.
-  total_orders Int
-  
-  /// Total sales amount (monetary) for the channel/stat day.
-  total_sales Float
-  
-  /// Unique buyers in the reporting window.
-  total_buyers Int
-  
-  /// When the analytics aggregation record was created.
-  created_at DateTime
-  
-  //----
-  // RELATIONS
-  //----
-  channel ai_commerce_channels @relation(fields: [ai_commerce_channel_id], references: [id], onDelete: Cascade)
-  
-  @@unique([ai_commerce_channel_id])
-  
-  @@index([stat_date])
+  @@unique([shopping_mall_configuration_id, revision], map: "shopping_mall_channel_configuration_snapshots_shopping_9a1a9a92")
+  @@index([created_at])
 }

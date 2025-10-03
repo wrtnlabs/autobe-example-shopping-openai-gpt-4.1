@@ -1,99 +1,121 @@
-import jwt from "jsonwebtoken";
-import { MyGlobal } from "../MyGlobal";
-import typia, { tags } from "typia";
+import { HttpException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import typia, { tags } from "typia";
 import { v4 } from "uuid";
-import { toISOStringSafe } from "../util/toISOStringSafe";
-import { IAiCommerceSeller } from "@ORGANIZATION/PROJECT-api/lib/structures/IAiCommerceSeller";
+import { MyGlobal } from "../MyGlobal";
+import { PasswordUtil } from "../utils/PasswordUtil";
+import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-/**
- * Authenticate seller, issuing new JWT tokens (ai_commerce_seller,
- * ai_commerce_buyer).
- *
- * This endpoint validates seller credentials and issues JWT access and refresh
- * tokens.
- *
- * - Only sellers linked to active buyers (not soft-deleted) and in 'active'
- *   status may login.
- * - Denies login for missing, deleted, or non-active accounts, or when password
- *   does not match.
- * - All error cases return the same message and do not expose internal state.
- * - JWT payload and expiry are strictly constructed without native Date.
- * - Returns IAiCommerceSeller.IAuthorized structure, including properly formatted
- *   expiration times.
- *
- * @param props - Object containing seller login credentials
- * @param props.body - Seller login body (email, password)
- * @returns Seller authorization structure including seller.id and issued JWT
- *   tokens
- * @throws {Error} If credentials are invalid or account is
- *   missing/deleted/non-active
- */
-export async function postauthSellerLogin(props: {
-  body: IAiCommerceSeller.ILogin;
-}): Promise<IAiCommerceSeller.IAuthorized> {
-  const { body } = props;
-  // Forbid leaking any account info: always the same error
-  const loginError = new Error("Invalid credentials");
+import { IShoppingMallSeller } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallSeller";
+import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
 
-  // 1. Find buyer by email (must not be soft-deleted)
-  const buyer = await MyGlobal.prisma.ai_commerce_buyer.findFirst({
+export async function postAuthSellerLogin(props: {
+  body: IShoppingMallSeller.ILogin;
+}): Promise<IShoppingMallSeller.IAuthorized> {
+  const { email, password, shopping_mall_channel_id } = props.body;
+
+  // Find matching customer: email, channel, not deleted
+  const customer = await MyGlobal.prisma.shopping_mall_customers.findFirst({
     where: {
-      email: body.email,
+      email,
+      shopping_mall_channel_id,
       deleted_at: null,
     },
   });
-  if (!buyer) throw loginError;
-
-  // 2. Find seller link (must not be soft-deleted)
-  const seller = await MyGlobal.prisma.ai_commerce_seller.findFirst({
+  if (!customer) {
+    throw new HttpException("Invalid email or password", 401);
+  }
+  // Find linked seller, not soft deleted
+  const seller = await MyGlobal.prisma.shopping_mall_sellers.findFirst({
     where: {
-      buyer_id: buyer.id,
+      shopping_mall_customer_id: customer.id,
       deleted_at: null,
     },
   });
-  if (!seller) throw loginError;
-
-  // 3. Both buyer and seller must be 'active'
-  if (buyer.status !== "active" || seller.status !== "active") throw loginError;
-
-  // 4. Check password securely
-  const passwordOk = await MyGlobal.password.verify(
-    body.password,
-    buyer.password_hash,
+  if (!seller) {
+    throw new HttpException("Invalid email or password", 401);
+  }
+  // Only allow login if both seller and customer status are 'active'
+  if (seller.status !== "active" || customer.status !== "active") {
+    throw new HttpException("Seller account is not active", 401);
+  }
+  // password_hash presence
+  if (!customer.password_hash) {
+    throw new HttpException("Invalid email or password", 401);
+  }
+  // Password check
+  const verified = await PasswordUtil.verify(password, customer.password_hash);
+  if (!verified) {
+    throw new HttpException("Invalid email or password", 401);
+  }
+  // Generate tokens
+  const accessExpire = new Date(Date.now() + 60 * 60 * 1000);
+  const refreshExpire = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const accessToken = jwt.sign(
+    {
+      id: seller.id,
+      type: "seller",
+    },
+    MyGlobal.env.JWT_SECRET_KEY,
+    {
+      expiresIn: "1h",
+      issuer: "autobe",
+    },
   );
-  if (!passwordOk) throw loginError;
+  const refreshToken = jwt.sign(
+    {
+      id: seller.id,
+      type: "seller",
+      tokenType: "refresh",
+    },
+    MyGlobal.env.JWT_SECRET_KEY,
+    {
+      expiresIn: "7d",
+      issuer: "autobe",
+    },
+  );
+  // ISO strings for expiration
+  const accessExpiredAt = toISOStringSafe(accessExpire);
+  const refreshExpiredAt = toISOStringSafe(refreshExpire);
 
-  // 5. Compute current time and expiry (no native Date, use number + branding)
-  const nowEpoch = Date.now();
-  const accessExpEpoch = nowEpoch + 60 * 60 * 1000; // 1 hour
-  const refreshExpEpoch = nowEpoch + 7 * 24 * 60 * 60 * 1000; // 7 days
-  const expired_at = toISOStringSafe(new Date(accessExpEpoch));
-  const refreshable_until = toISOStringSafe(new Date(refreshExpEpoch));
-
-  // 6. Prepare JWT payload (according to SellerPayload spec)
-  const payload = {
-    id: seller.id,
-    type: "seller",
+  const token = {
+    access: accessToken,
+    refresh: refreshToken,
+    expired_at: accessExpiredAt,
+    refreshable_until: refreshExpiredAt,
   };
-
-  // 7. Sign access/refresh tokens with issuer 'autobe' and correct expiry
-  const access = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: 60 * 60, // in seconds (1 hour)
-    issuer: "autobe",
-  }) as string;
-  const refresh = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: 7 * 24 * 60 * 60, // in seconds (7 days)
-    issuer: "autobe",
-  }) as string;
 
   return {
     id: seller.id,
-    token: {
-      access,
-      refresh,
-      expired_at,
-      refreshable_until,
+    shopping_mall_customer_id: seller.shopping_mall_customer_id,
+    shopping_mall_section_id: seller.shopping_mall_section_id,
+    profile_name: seller.profile_name,
+    status: seller.status,
+    approval_at: seller.approval_at
+      ? toISOStringSafe(seller.approval_at)
+      : undefined,
+    kyc_status: seller.kyc_status,
+    created_at: toISOStringSafe(seller.created_at),
+    updated_at: toISOStringSafe(seller.updated_at),
+    deleted_at: seller.deleted_at
+      ? toISOStringSafe(seller.deleted_at)
+      : undefined,
+    token,
+    seller: {
+      id: seller.id,
+      shopping_mall_section_id: seller.shopping_mall_section_id,
+      profile_name: seller.profile_name,
+      status: seller.status,
+      approval_at: seller.approval_at
+        ? toISOStringSafe(seller.approval_at)
+        : undefined,
+      kyc_status: seller.kyc_status,
+      created_at: toISOStringSafe(seller.created_at),
+      updated_at: toISOStringSafe(seller.updated_at),
+      deleted_at: seller.deleted_at
+        ? toISOStringSafe(seller.deleted_at)
+        : undefined,
     },
   };
 }

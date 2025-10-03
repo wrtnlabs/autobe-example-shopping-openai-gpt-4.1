@@ -5,15 +5,12 @@ import { jwtAuthorize } from "./jwtAuthorize";
 import { SellerPayload } from "../../decorators/payload/SellerPayload";
 
 /**
- * Authenticate and authorize a seller based on JWT and database validation.
+ * Provider function for authenticating sellers by JWT and database state.
+ * Ensures the account is valid, active, and not logically deleted.
  *
- * - Verifies seller role via JWT token.
- * - Ensures seller is linked and active within the database (not deleted/terminated).
- * - Uses the top-level user table id as payload.id for validation.
- *
- * @param request Incoming HTTP request with Authorization header.
- * @returns Authenticated SellerPayload.
- * @throws ForbiddenException if authentication or seller validation fails.
+ * @param request The HTTP request object containing headers (including JWT Authorization)
+ * @returns Authenticated SellerPayload if validation passes
+ * @throws ForbiddenException if not seller role, or DB state invalid
  */
 export async function sellerAuthorize(request: {
   headers: {
@@ -23,31 +20,25 @@ export async function sellerAuthorize(request: {
   const payload: SellerPayload = jwtAuthorize({ request }) as SellerPayload;
 
   if (payload.type !== "seller") {
-    throw new ForbiddenException(`You're not a seller`);
+    throw new ForbiddenException(`You're not ${payload.type}`);
   }
 
-  // Check ai_commerce_seller by buyer_id (payload.id = ai_commerce_buyer.id), not soft deleted
-  const seller = await MyGlobal.prisma.ai_commerce_seller.findFirst({
+  // payload.id = shopping_mall_customers.id (top-level user ID)
+  const seller = await MyGlobal.prisma.shopping_mall_sellers.findFirst({
     where: {
-      buyer_id: payload.id,
+      shopping_mall_customer_id: payload.id,
       deleted_at: null,
-      status: { in: ["active", "under_review", "suspended"] },
+      // Seller is only valid if customer is valid as well
+      customer: {
+        deleted_at: null,
+        status: "active",
+      },
+      status: "active",
     },
   });
-  if (!seller) {
-    throw new ForbiddenException("You're not enrolled as a seller or not active.");
-  }
 
-  // Extra: check buyer account is also not soft-deleted
-  const buyer = await MyGlobal.prisma.ai_commerce_buyer.findFirst({
-    where: {
-      id: payload.id,
-      deleted_at: null,
-      status: { not: "deleted" },
-    },
-  });
-  if (!buyer) {
-    throw new ForbiddenException("Your buyer account is not valid.");
+  if (seller === null) {
+    throw new ForbiddenException("You're not enrolled as an active seller");
   }
 
   return payload;

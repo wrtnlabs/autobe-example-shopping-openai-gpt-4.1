@@ -1,47 +1,55 @@
 import { Controller } from "@nestjs/common";
 import { TypedRoute, TypedBody } from "@nestia/core";
 import typia from "typia";
-import { postauthSellerJoin } from "../../../providers/postauthSellerJoin";
-import { postauthSellerLogin } from "../../../providers/postauthSellerLogin";
-import { postauthSellerRefresh } from "../../../providers/postauthSellerRefresh";
+import { postAuthSellerJoin } from "../../../providers/postAuthSellerJoin";
+import { postAuthSellerLogin } from "../../../providers/postAuthSellerLogin";
+import { postAuthSellerRefresh } from "../../../providers/postAuthSellerRefresh";
 
-import { IAiCommerceSeller } from "../../../api/structures/IAiCommerceSeller";
+import { IShoppingMallSeller } from "../../../api/structures/IShoppingMallSeller";
 
 @Controller("/auth/seller")
 export class AuthSellerController {
   /**
-   * Register a new seller account (ai_commerce_seller table) and issue initial
-   * tokens.
+   * Register a new seller (shopping_mall_sellers table) and issue initial
+   * authentication credentials/token.
    *
-   * This endpoint handles the registration of a new seller account for the
-   * aiCommerce platform. Sellers are created as an elevated role, linked to a
-   * buyer profile via the buyer_id field. The onboarding process begins by
-   * collecting information such as email and password (stored as password_hash
-   * for security), marking the seller's status as under_review. The operation
-   * is strictly tied to the ai_commerce_seller and ai_commerce_buyer tables,
-   * making use of core authentication fields documented by the schema.
+   * This operation enables the registration of a new seller on the AI-driven
+   * shopping mall platform by creating records in the 'shopping_mall_sellers'
+   * Prisma table, which in turn is linked to the parent customer record. The
+   * process captures all mandatory KYC and business registration fields—such as
+   * email, password_hash, name, status, and approval requirements—ensuring
+   * rigorous compliance and onboarding control.
    *
-   * The account is set to under_review, and registration metadata such as
-   * created_at is preserved for audit/tracing. Account approval and escalation
-   * are handled separately via onboarding tables and admin processes. The
-   * response body type follows authenticated convention, issuing
-   * IAiCommerceSeller.IAuthorized, which includes JWT tokens for the session.
+   * The operation integrates tightly with status tracking fields like 'status',
+   * 'kyc_status', and may include initial verification meta, providing the
+   * business with a full audit trail as required by e-commerce compliance law.
+   * Role escalation for existing members is also supported via this endpoint;
+   * in both new and upgrade scenarios, uniqueness of email and association are
+   * audited using the 'shopping_mall_customers' table.
    *
-   * Security includes validation of unique email, secure password storage, and
-   * marking created accounts as pending approval. This registration does not
-   * auto-approve; manual or automated compliance review is required thereafter.
-   * The join operation is essential for enabling the seller onboarding
-   * lifecycle, and error handling is aligned with schema constraints and
-   * business guidelines.
+   * For security and extensibility, additional authentication fields (such as
+   * mobile phone or social login identity, if available) are accepted as per
+   * the schema. All onboarding steps are snapshotted and reviewed, with
+   * role/section assignments validated at registration. The endpoint's business
+   * logic ensures that incomplete or duplicate applications are properly
+   * rejected, and all successful registrations are set to pending approval or
+   * active based on workflow status.
    *
-   * Related operations for login and refresh use the same authentication data
-   * model. No soft delete is performed at registration. This is the only
-   * allowed public endpoint for creating a new seller role; member and admin
-   * roles do not use this path.
+   * The registration event is essential for enabling subsequent authentication
+   * and token issuance as a seller. Error handling is robust, including unique
+   * constraint violations (email/check), invalid field formats, or business
+   * rule infractions, and such events are logged as part of the system's
+   * evidence chain.
+   *
+   * This operation does not provide any update or deletion capabilities,
+   * focusing exclusively on initial seller registration. Profile modifications,
+   * section changes, or escalation beyond 'seller' status require separate
+   * role-specific endpoints and are not covered here.
    *
    * @param connection
-   * @param body Seller registration information (email, password, optional
-   *   onboarding/kyc fields).
+   * @param body Seller registration payload with customer and seller profile
+   *   fields. Includes email, password, KYC, and all schema-mandatory business
+   *   fields.
    * @setHeader token.access Authorization
    *
    * @nestia Generated by Nestia - https://github.com/samchon/nestia
@@ -49,10 +57,10 @@ export class AuthSellerController {
   @TypedRoute.Post("join")
   public async join(
     @TypedBody()
-    body: IAiCommerceSeller.IJoin,
-  ): Promise<IAiCommerceSeller.IAuthorized> {
+    body: IShoppingMallSeller.IJoin,
+  ): Promise<IShoppingMallSeller.IAuthorized> {
     try {
-      return await postauthSellerJoin({
+      return await postAuthSellerJoin({
         body,
       });
     } catch (error) {
@@ -62,33 +70,40 @@ export class AuthSellerController {
   }
 
   /**
-   * Authenticate seller, issuing new JWT tokens (ai_commerce_seller,
-   * ai_commerce_buyer).
+   * Seller login (shopping_mall_sellers/shopping_mall_customers): Authenticate
+   * and issue access/refresh tokens.
    *
-   * Authenticated login endpoint for sellers. Validates email and password
-   * credentials against the ai_commerce_buyer (username/email) and
-   * ai_commerce_seller (buyer_id linkage, status). Password is hashed and
-   * compared to the stored password_hash field per schema, and only active
-   * sellers are granted access.
+   * Authenticate a seller using the 'shopping_mall_sellers' and
+   * 'shopping_mall_customers' tables by verifying email and password
+   * credentials. The 'shopping_mall_customers.email' field serves as the login
+   * identifier, and 'password_hash' provides secure credential verification
+   * matching best practices for authentication.
    *
-   * Security: Suspended/terminated sellers (status field) are denied login, and
-   * audit logs should be triggered per ai_commerce_audit_logs_user. On
-   * successful authentication, signed tokens are issued in the
-   * IAiCommerceSeller.IAuthorized structure.
+   * This operation enforces business rules around account statuses: only
+   * sellers with 'active' and/or 'approved' status may log in, and statuses
+   * such as 'pending', 'suspended', or 'deleted' block authentication attempts,
+   * generating security-audited events. The operation also logs all connection
+   * and session events for compliance, referencing both seller and customer IDs
+   * in the audit chain.
    *
-   * Role specificity: This login endpoint only authenticates sellers and is not
-   * available for buyers or admins. Error cases (invalid credentials, wrong
-   * status) are fully aligned with schema rules and fields.
+   * Upon successful authentication, the operation issues new JWT access and
+   * refresh tokens paired with seller authentication metadata in the response.
+   * All failed login attempts trigger appropriate error logs and may escalate
+   * to account lockout after repeated failures as defined in the business
+   * logic.
    *
-   * The endpoint is the main path for session-based authentication of sellers,
-   * fit for web/mobile SDKs, and requires no pre-execution of a join endpoint
-   * if the account already exists.
+   * Login attempts on soft-deleted ('deleted_at' set) or withdrawn accounts are
+   * prevented in accordance with legal and compliance requirements. Full
+   * session tracking is maintained in the audit log for all authentication
+   * flows.
    *
-   * Error handling: Invalid email/password or account status (not active)
-   * returns a clear error with no sensitive information.
+   * This endpoint does not create or update profile data, nor does it elevate
+   * roles; those are managed via separate API operations. Its exclusive purpose
+   * is secure credential-based seller authentication.
    *
    * @param connection
-   * @param body Seller login credentials (email, password).
+   * @param body Seller login payload specifying email and password credentials
+   *   for authentication.
    * @setHeader token.access Authorization
    *
    * @nestia Generated by Nestia - https://github.com/samchon/nestia
@@ -96,10 +111,10 @@ export class AuthSellerController {
   @TypedRoute.Post("login")
   public async login(
     @TypedBody()
-    body: IAiCommerceSeller.ILogin,
-  ): Promise<IAiCommerceSeller.IAuthorized> {
+    body: IShoppingMallSeller.ILogin,
+  ): Promise<IShoppingMallSeller.IAuthorized> {
     try {
-      return await postauthSellerLogin({
+      return await postAuthSellerLogin({
         body,
       });
     } catch (error) {
@@ -109,37 +124,42 @@ export class AuthSellerController {
   }
 
   /**
-   * Refresh JWT tokens for valid seller session (ai_commerce_seller,
-   * ai_commerce_buyer).
+   * Renew seller authentication tokens (JWT) using valid refresh token for
+   * shopping_mall_sellers table.
    *
-   * Token refresh endpoint for sellers. This operation accepts a valid refresh
-   * token tied to an active seller account (ai_commerce_seller, via buyer_id
-   * linkage). Upon validating token authenticity and session (referencing
-   * ai_commerce_user_authentications, ai_commerce_buyer, and ai_commerce_seller
-   * tables), new JWT access/refresh tokens are issued as
-   * IAiCommerceSeller.IAuthorized. No account approval/escalation is performed
-   * by this route.
+   * Renew authentication tokens for a seller using a valid refresh token
+   * against the 'shopping_mall_sellers' and 'shopping_mall_customers' tables.
+   * The submitted refresh token is verified for validity, and upon passing, new
+   * JWT access and refresh tokens are generated and returned in the response
+   * payload. All issued tokens are bound to the seller's current status as well
+   * as compliance with account activity/soft-deletion checks ('deleted_at'
+   * field is null).
    *
-   * Security and status constraints: If a seller account is suspended or
-   * deleted (per status field in ai_commerce_seller), token refresh is denied.
-   * Audit logs for session/token refresh (ai_commerce_audit_logs_user) are
-   * triggered as per backend compliance expectations. No request body fields
-   * are needed—the token is extracted from the HTTP headers.
+   * Failed attempts for inactive, suspended, or soft-deleted sellers are
+   * strictly denied, and all such events are logged for regulatory evidence.
+   * The operation supports tracking and audit linkage in compliance with
+   * session authentication requirements for AI-driven shopping mall platforms.
    *
-   * This operation is required for maintaining long-lived sessions and mobile
-   * SDK flows for seller accounts. Related endpoints (login, join) are
-   * prerequisite depending on acquisition flow, but are not called by this
-   * endpoint.
+   * On successful renewal, connection/session meta is updated for full audit
+   * support. This endpoint does not support credentials-based authentication or
+   * any profile/account updates—it strictly serves token refresh flows.
    *
    * @param connection
+   * @param body Token renewal payload with refresh token for seller session
+   *   continuation.
    * @setHeader token.access Authorization
    *
    * @nestia Generated by Nestia - https://github.com/samchon/nestia
    */
   @TypedRoute.Post("refresh")
-  public async refresh(): Promise<IAiCommerceSeller.IAuthorized> {
+  public async refresh(
+    @TypedBody()
+    body: IShoppingMallSeller.IRefresh,
+  ): Promise<IShoppingMallSeller.IAuthorized> {
     try {
-      return await postauthSellerRefresh();
+      return await postAuthSellerRefresh({
+        body,
+      });
     } catch (error) {
       console.log(error);
       throw error;

@@ -1,0 +1,13 @@
+export * as customers from "./customers/index";
+export * as carts from "./carts/index";
+export * as orders from "./orders/index";
+export * as deposits from "./deposits/index";
+export * as mileages from "./mileages/index";
+export * as donations from "./donations/index";
+export * as boards from "./boards/index";
+export * as products from "./products/index";
+export * as reviews from "./reviews/index";
+export * as favoriteProducts from "./favoriteProducts/index";
+export * as favoriteAddresses from "./favoriteAddresses/index";
+export * as favoriteInquiries from "./favoriteInquiries/index";
+export * as attachments from "./attachments/index";

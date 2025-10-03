@@ -1,0 +1,233 @@
+/// Represents a product favorited by a customer. Stores reference to the
+/// favored product (from shopping_mall_products), the customer who favorited
+/// it (from shopping_mall_customers), and the immutable snapshot
+/// representing the product state at time of favoriting. Supports audit
+/// fields, soft deletion, notification trigger flag, and batch operation
+/// meta. Enforces uniqueness per customer-product pair. Enables user
+/// personalization and downstream AI analysis. Key foreign relations to
+/// {@link shopping_mall_customers.id}, {@link shopping_mall_products.id},
+/// and {@link shopping_mall_favorite_snapshots.id}.
+///
+/// @namespace Favorites
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_favorite_products {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Favoriting customer's {@link shopping_mall_customers.id}.
+  shopping_mall_customer_id String
+  
+  /// Favorited product's {@link shopping_mall_products.id}.
+  shopping_mall_product_id String
+  
+  /// Snapshot at point of favoriting. {@link
+  /// shopping_mall_favorite_snapshots.id}.
+  shopping_mall_favorite_snapshot_id String
+  
+  /// Whether notifications are enabled for entity changes after favoriting.
+  notification_enabled Boolean
+  
+  /// Optional custom label/tag for user batch operation (e.g., organizing
+  /// favorites).
+  batch_label String?
+  
+  /// Timestamp when favorite was created.
+  created_at DateTime
+  
+  /// Timestamp when favorite was last updated (meta change, not favorite
+  /// entity).
+  updated_at DateTime
+  
+  /// Timestamp of logical deletion (null if active). Enables soft delete for
+  /// auditability.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  product shopping_mall_products @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  favoriteSnapshot shopping_mall_favorite_snapshots @relation(fields: [shopping_mall_favorite_snapshot_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_product_id])
+  @@index([shopping_mall_favorite_snapshot_id], map: "shopping_mall_favorite_products_shopping_mall_favorite_364b6466")
+  
+  @@unique([shopping_mall_customer_id, shopping_mall_product_id], map: "shopping_mall_favorite_products_shopping_mall_customer_1bae144e")
+  @@index([shopping_mall_customer_id, created_at], map: "shopping_mall_favorite_products_shopping_mall_customer_c8b7d7b1")
+}
+
+/// Represents a user-favorited address. Links to customer (from
+/// shopping_mall_customers), to the address entity (from
+/// shopping_mall_addresses — assumed present in external tables), and to an
+/// immutable favorite snapshot at favoriting time. Supports notification
+/// flag, audit fields, optional organization label, and batch management
+/// support. Enforces unique favorite per customer per address.
+/// Audit-supporting, snapshot-enabled, user-controllable entity for
+/// personalization and history.
+///
+/// @namespace Favorites
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_favorite_addresses {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Favoriting customer's {@link shopping_mall_customers.id}.
+  shopping_mall_customer_id String
+  
+  /// Snapshot at favorite action time. {@link
+  /// shopping_mall_favorite_snapshots.id}.
+  shopping_mall_favorite_snapshot_id String
+  
+  /// Favorited address's business id (UUID reference to address system, not a
+  /// Prisma model relation).
+  shopping_mall_address_id String
+  
+  /// Whether notifications (e.g., address update, delivery event) are enabled.
+  notification_enabled Boolean
+  
+  /// User-given organizational label/tag for this favorite.
+  batch_label String?
+  
+  /// Favorite creation datetime.
+  created_at DateTime
+  
+  /// Last update to favorite (meta, not address entity).
+  updated_at DateTime
+  
+  /// Soft deletion timestamp if deleted, null when active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  favoriteSnapshot shopping_mall_favorite_snapshots @relation(fields: [shopping_mall_favorite_snapshot_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_favorite_snapshot_id], map: "shopping_mall_favorite_addresses_shopping_mall_favorit_e352f2c2")
+  
+  @@unique([shopping_mall_customer_id, shopping_mall_address_id], map: "shopping_mall_favorite_addresses_shopping_mall_custome_7fbf31cb")
+  @@index([shopping_mall_customer_id, created_at], map: "shopping_mall_favorite_addresses_shopping_mall_custome_dc365e4c")
+}
+
+/// Captures a user-favorited inquiry (product Q&A). Links customer (from
+/// shopping_mall_customers), inquiry (from shopping_mall_product_inquiries),
+/// and favorite snapshot (from shopping_mall_favorite_snapshots). Enables
+/// independent management, cross-inquiry search, and notification upon
+/// changes/upstream answer. Supports label/tag, audit fields, notification
+/// preference, soft deletion, and batch operation. Uniqueness enforced per
+/// customer-inquiry pair.
+///
+/// @namespace Favorites
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_favorite_inquiries {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Favoriting customer's {@link shopping_mall_customers.id}.
+  shopping_mall_customer_id String
+  
+  /// Favorited inquiry's {@link shopping_mall_product_inquiries.id}.
+  shopping_mall_product_inquiry_id String
+  
+  /// Snapshot at the moment of favoriting. {@link
+  /// shopping_mall_favorite_snapshots.id}.
+  shopping_mall_favorite_snapshot_id String
+  
+  /// Enable notifications when the inquiry or its answer changes.
+  notification_enabled Boolean
+  
+  /// Optional user-defined favorite organization label.
+  batch_label String?
+  
+  /// Datetime favorited.
+  created_at DateTime
+  
+  /// Datetime last meta update.
+  updated_at DateTime
+  
+  /// Timestamp of logical (soft) delete. Null if still active.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  productInquiry shopping_mall_product_inquiries @relation(fields: [shopping_mall_product_inquiry_id], references: [id], onDelete: Cascade)
+  favoriteSnapshot shopping_mall_favorite_snapshots @relation(fields: [shopping_mall_favorite_snapshot_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_product_inquiry_id], map: "shopping_mall_favorite_inquiries_shopping_mall_product_af53dc92")
+  @@index([shopping_mall_favorite_snapshot_id], map: "shopping_mall_favorite_inquiries_shopping_mall_favorit_1e34e846")
+  
+  @@unique([shopping_mall_customer_id, shopping_mall_product_inquiry_id], map: "shopping_mall_favorite_inquiries_shopping_mall_custome_8b4155e4")
+  @@index([shopping_mall_customer_id, created_at], map: "shopping_mall_favorite_inquiries_shopping_mall_custome_d5b10ff1")
+}
+
+/// Snapshot record capturing the full immutable state of any favorited
+/// entity (product, address, inquiry) at the time it was favorited. Used to
+/// preserve historical evidence for personalization, audit, compliance, or
+/// dispute. Enables reconstruction of favorited state even if upstream
+/// entity is later changed or removed. Includes the favorited entity's raw
+/// business data, snapshot type (product/address/inquiry), foreign keys
+/// (nullable, since snapshot may persist beyond entity lifetime), and
+/// temporal/audit fields. All favorites reference their associated snapshot
+/// for rollback and evidence purpose.
+///
+/// @namespace Favorites
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_favorite_snapshots {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Referenced product (if snapshotting a product), from {@link
+  /// shopping_mall_products.id}. Nullable after source deletion.
+  shopping_mall_product_id String?
+  
+  /// Referenced product inquiry, from {@link
+  /// shopping_mall_product_inquiries.id}. Nullable.
+  shopping_mall_product_inquiry_id String?
+  
+  /// Referenced address's UUID from address system (not a Prisma relation).
+  /// Used for external reference or after deletion of original entity.
+  shopping_mall_address_id String?
+  
+  /// Type of favorited entity: 'product', 'address', or 'inquiry'.
+  entity_type String
+  
+  /// Full business data of the entity at time of favoriting as serialized JSON
+  /// (immutable evidence).
+  snapshot_data String
+  
+  /// When snapshot was created (favorited).
+  created_at DateTime
+  
+  /// If snapshot is logically deleted (rare, e.g., for GDPR erase), timestamp
+  /// here.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_products? @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  productInquiry shopping_mall_product_inquiries? @relation(fields: [shopping_mall_product_inquiry_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_favorite_products shopping_mall_favorite_products[]
+  shopping_mall_favorite_addresses shopping_mall_favorite_addresses[]
+  shopping_mall_favorite_inquiries shopping_mall_favorite_inquiries[]
+  
+  @@index([shopping_mall_product_id])
+  @@index([shopping_mall_product_inquiry_id], map: "shopping_mall_favorite_snapshots_shopping_mall_product_1049168a")
+  
+  @@index([entity_type, created_at])
+}

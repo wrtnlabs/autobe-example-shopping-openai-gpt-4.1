@@ -5,7 +5,8 @@ import { Singleton } from "tstl";
 import { sellerAuthorize } from "../providers/authorize/sellerAuthorize";
 
 /**
- * Parameter decorator for authenticating and injecting seller account payload.
+ * Decorator to enable seller authorization on controller methods.
+ * Injects SellerPayload when called in controller method parameter.
  */
 export const SellerAuth =
   (): ParameterDecorator =>

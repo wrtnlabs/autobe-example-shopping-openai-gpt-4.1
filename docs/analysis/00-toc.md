@@ -1,77 +1,38 @@
-# AI Commerce Platform – Documentation Index
+# AI-Based Shopping Mall Backend Requirements – Table of Contents
 
-Welcome to the comprehensive documentation set for the aiCommerce backend platform. This documentation collection defines the business requirements, processes, and logic for the platform, acting as both a roadmap and reference for developers, business stakeholders, and all project participants.
-
-The following index outlines each document, with clear descriptions and direct navigation. Documents are grouped for logical discovery. Click the descriptive links to access the full details of any topic.
+This Table of Contents outlines the structure for the full suite of backend requirements documentation for the AI-based Shopping Mall System. Each section links to a comprehensive document that specifies key functional, business, and compliance requirements for the platform.
 
 ---
 
-## Service Foundation and Platform Vision
+## 1. [Service Vision and Business Model](./01-service-vision-and-business-model.md)
+**Covers:** The strategic vision, business justification, target market, and success metrics driving the AI shopping mall backend. Outlines the business model, market needs, revenue strategies, and KPIs to guide all technical and product decisions.
 
-- **[Service Overview – Vision, Model, and AI Differentiators](./01-service-overview.md)**  
-  Presents the strategic objectives, business justification, revenue strategies, and unique AI-powered elements that distinguish aiCommerce. Establishes the context for all requirements.
+## 2. [User Roles and Authentication](./02-user-roles-and-authentication.md)
+**Covers:** Complete taxonomy of user roles (customer, seller, admin), role escalation flows, permission structures, authentication mechanisms (including OAuth, multi-channel support), and comprehensive access control matrices. Describes how identity, session, and access management are enforced across the platform.
 
-- **[User Roles & Authentication Specification](./02-user-roles-and-authentication.md)**  
-  Defines ALL user roles (buyer, seller, admin, visitor), registration, authentication, permission matrix, session security, and account recovery flow. Sets the foundation for secure, granular account management for all API-accessible entities.
+## 3. [Functional Requirements Overview](./03-functional-requirements-overview.md)
+**Covers:** System-wide business requirements in natural language, using EARS format for clarity and precision. Encompasses high-level descriptions of system scope, product workflows, order and user operations, general platform processes, and business logic.
 
----
+## 4. [Product & Catalog Management](./04-product-and-catalog-management.md)
+**Covers:** Detailed catalog operations including product registration, variant/option management, bundles, category/section hierarchies, channel-specific and extensible structures, content management, SEO, inventory rules, and rich media handling.
 
-## Product Organization & Discovery
+## 5. [Order, Cart, and Payment Workflows](./05-order-cart-and-payment-workflows.md)
+**Covers:** End-to-end business flows for cart storage, order creation and transitions, payment acceptance, transaction validation, courier and shipment tracking, after-sales workflows, and asynchronous/multi-modal payment support.
 
-- **[Channel & Section Management Requirements](./03-channel-and-section-management.md)**  
-  Details the organization of products through multi-channel, section, and hierarchical category systems. Includes sophisticated AI-driven merchandising and logic for a seamless cross-channel user experience.
+## 6. [Discounts, Coupons, and Loyalty Programs](./06-discounts-coupons-and-loyalty-programs.md)
+**Covers:** All aspects of coupon, discount, deposit, and mileage logic: issuing, redemption, validation, stackability, exclusivity, targeting, analytics, and fraud prevention. Includes loyalty programs, user donations, and campaign mechanics.
 
-- **[User Management & Addressing](./04-user-management-and-addressing.md)**  
-  Defines all logic for user onboarding, tracking, external authentication, address and profile management, privacy, analytics, and robust support for international users and compliance.
+## 7. [Bulletin Board, Inquiry, and Review System](./07-bulletin-board-inquiry-and-review-system.md)
+**Covers:** Business rules for Q&A, review, and feedback channels linked to products and orders. Includes moderation, audit/snapshot history, multi-level threading, response protocols, and notification requirements.
 
-- **[Seller Management & Store Operations](./05-seller-management.md)**  
-  Describes institutional seller onboarding, store management, seller-centric analytics, role escalation, product lifecycle control, verification workflows, and resolution of disputes or escalations.
+## 8. [Favorites and Personalization](./08-favorites-and-personalization.md)
+**Covers:** Requirements for personal favorites (products, addresses, inquiries), snapshot evidence, batch operations, update notifications, and AI-driven personalization features.
 
-- **[Product Management Logic and Versioning](./06-product-management.md)**  
-  Covers every step of the product lifecycle: registration, bundling, option/variant logic, category/tag system, product detail/SEO, snapshot-based audit history, and legal/evidence preservation.
+## 9. [System Architecture, Snapshots, and Compliance](./09-system-architecture-snapshots-and-compliance.md)
+**Covers:** Organizational structure, file/attachment handling, extensibility planning, full-audit snapshot logic, compliance with privacy/data localization, and internationalization (languages/currencies/tax etc).
 
-- **[Product Search, Tag, and AI Recommendations](./07-product-search-and-discovery.md)**  
-  Explains search logic, tagging, trending/highlighting, filtering, and AI-powered personalization, covering full requirements for discovery optimization and recommendation engines.
-
----
-
-## UX, Social, and User-Generated Content
-
-- **[Bulletin, Inquiry, and Review Processing](./08-bulletin-inquiry-review.md)**  
-  Specifies structure, workflows, audit trails, and notification rules for inquiries, reviews, and other social/business boards. Documents policies for moderation, editing, deletion, and evidence preservation.
-
----
-
-## Transaction & Workflow Engines
-
-- **[Cart Management & Persistent Storage](./09-cart-management.md)**  
-  Defines requirements for guest/member carts, session management, merging, validation, expiration, and flexible template logic—core for AI-driven cart/checkout flows.
-
-- **[Order Workflows, Status Logic, AI Automation](./10-order-management.md)**  
-  Complete specification on order processing, split/multi-vendor scenarios, status transition, automation/AI optimization, after-sales support, and complex fulfillment.
-
-- **[Payment, Coupon, and Mileage Systems](./11-payment-coupon-mileage.md)**  
-  All business logic for multi-method payments, deposit/mileage management, fraud prevention, coupon application, financial analytics, and AI-controlled incentive programs.
-
----
-
-## Personalization & Asset Handling
-
-- **[Favorites and Bookmarking Specification](./12-favorites-and-bookmarking.md)**  
-  Requirements for managing, categorizing, and snapshotting favorites/bookmarks for products, inquiries, and addresses. Includes personalized notifications and organizational features.
-
-- **[Attachment & File Management](./13-attachment-and-file-management.md)**  
-  Outlines all requirements for secure file upload, metadata/versioning, access control, validation, CDN integration, and regulatory compliance.
-
----
-
-## Compliance, Business Logic, and Roadmap
-
-- **[Business Rules and Compliance Criteria](./14-business-rules-and-compliance.md)**  
-  Documents all audit/data integrity protocols, business rule enforcement, privacy, global regulatory requirements, permission and security schemes, analytics, and extensibility guidelines.
-
-- **[Advanced Features and AI-Powered Roadmap](./15-advanced-features-and-roadmap.md)**  
-  Describes current and future plans for AI/ML-driven operational enhancements, real-time analytics, omnichannel expansion, third-party integrations, and extensibility vision.
+## 10. [Business Rules and Exception Handling](./10-business-rules-exception-handling-and-ai-features.md)
+**Covers:** Core business logic, workflow automation (e.g. coupon stacking, inventory, order/payment transitions), error/exception management, validation rules, and an AI-centric roadmap (recommendations, fraud prevention, analytics, omnichannel integration, and more).
 
 ---
 

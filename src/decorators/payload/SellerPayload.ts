@@ -1,16 +1,14 @@
 import { tags } from "typia";
 
 /**
- * JWT payload for authenticated Seller role.
+ * Seller JWT Payload.
  *
- * - Id: Corresponds to ai_commerce_buyer.id (top-level user table ID for
- *   sellers).
- * - Type: Discriminator for role-based payload union.
+ * - Id: shopping_mall_customers.id (top-level user identification)
+ * - Type: "seller" (discriminator)
  */
 export interface SellerPayload {
-  /** Top-level user table ID (ai_commerce_buyer.id). */
+  /** Top-level user table ID (shopping_mall_customers.id). */
   id: string & tags.Format<"uuid">;
-
-  /** Discriminator for this role. */
+  /** Discriminator for seller role. */
   type: "seller";
 }

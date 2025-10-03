@@ -1,9 +1,0 @@
-export * as items from "./items/index";
-export * as subOrders from "./subOrders/index";
-export * as statusHistory from "./statusHistory/index";
-export * as fulfillments from "./fulfillments/index";
-export * as afterSales from "./afterSales/index";
-export * as cancellations from "./cancellations/index";
-export * as refunds from "./refunds/index";
-export * as analytics from "./analytics/index";
-export * as snapshots from "./snapshots/index";

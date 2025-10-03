@@ -1,148 +1,90 @@
-import jwt from "jsonwebtoken";
-import { MyGlobal } from "../MyGlobal";
-import typia, { tags } from "typia";
+import { HttpException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import typia, { tags } from "typia";
 import { v4 } from "uuid";
-import { toISOStringSafe } from "../util/toISOStringSafe";
-import { IAiCommerceAdmin } from "@ORGANIZATION/PROJECT-api/lib/structures/IAiCommerceAdmin";
+import { MyGlobal } from "../MyGlobal";
+import { PasswordUtil } from "../utils/PasswordUtil";
+import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-/**
- * Refresh admin JWT session tokens (admin authentication, ai_commerce_admin
- * table).
- *
- * This operation allows an authenticated admin with a valid refresh token to
- * renew their session JWT tokens for continued privileged backend access to the
- * aiCommerce platform. It accepts a valid refresh token, validates it against
- * records in ai_commerce_user_authentications and the admin status, and issues
- * new access/refresh tokens as configured by session policy. Suspended or
- * deleted admin accounts are blocked from refreshing sessions. Refresh attempts
- * are fully audit-logged for compliance, and failed or expired tokens yield
- * error responses. This endpoint ensures seamless administrator session
- * continuity while enforcing strict role-based access and complying with the
- * admin role's schema requirements. It is a required element of a robust
- * administrator authentication system.
- *
- * @param props - Object containing all necessary parameters for the operation
- * @param props.body - IAiCommerceAdmin.IRefresh: The request body containing
- *   the admin refresh token
- * @returns IAiCommerceAdmin.IAuthorized - Refreshed authentication tokens and
- *   updated admin info
- * @throws {Error} When refresh token is expired, malformed, linked to
- *   non-existent/non-active admin, revoked, or violates compliance constraints
- */
-export async function postauthAdminRefresh(props: {
-  body: IAiCommerceAdmin.IRefresh;
-}): Promise<IAiCommerceAdmin.IAuthorized> {
+import { IShoppingMallAdmin } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallAdmin";
+import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
+
+export async function postAuthAdminRefresh(props: {
+  body: IShoppingMallAdmin.IRefresh;
+}): Promise<IShoppingMallAdmin.IAuthorized> {
   const { refreshToken } = props.body;
-
   let decoded: unknown;
   try {
     decoded = jwt.verify(refreshToken, MyGlobal.env.JWT_SECRET_KEY, {
       issuer: "autobe",
     });
-  } catch (error) {
-    await MyGlobal.prisma.ai_commerce_audit_logs_user.create({
-      data: {
-        id: v4(),
-        admin_id: undefined,
-        action_type: "admin_refresh_failed",
-        subject_type: "admin",
-        subject_id: v4(),
-        created_at: toISOStringSafe(new Date()),
-        ip_address: undefined,
-        device_info: undefined,
-      },
-    });
-    throw new Error("Invalid or expired refresh token");
+  } catch (err) {
+    throw new HttpException("Invalid or expired refresh token", 401);
   }
-
-  // Validate decoded JWT structure strictly
   if (
+    !decoded ||
     typeof decoded !== "object" ||
-    decoded === null ||
     !("id" in decoded) ||
-    typeof (decoded as Record<string, unknown>)["id"] !== "string" ||
     !("type" in decoded) ||
-    (decoded as Record<string, unknown>)["type"] !== "admin"
+    decoded["type"] !== "admin"
   ) {
-    await MyGlobal.prisma.ai_commerce_audit_logs_user.create({
-      data: {
-        id: v4(),
-        admin_id: undefined,
-        action_type: "admin_refresh_failed_invalid_payload",
-        subject_type: "admin",
-        subject_id: v4(),
-        created_at: toISOStringSafe(new Date()),
-        ip_address: undefined,
-        device_info: undefined,
-      },
-    });
-    throw new Error("Malformed refresh token payload");
+    throw new HttpException("Invalid token payload", 401);
   }
-
-  const adminId = (decoded as Record<string, unknown>)["id"];
-  const admin = await MyGlobal.prisma.ai_commerce_admin.findUnique({
+  const adminId = typia.assert<string>(decoded["id"]);
+  const admin = await MyGlobal.prisma.shopping_mall_admins.findUnique({
     where: { id: adminId },
   });
-  if (
-    !admin ||
-    admin.status !== "active" ||
-    (typeof admin.deleted_at !== "undefined" && admin.deleted_at !== null)
-  ) {
-    await MyGlobal.prisma.ai_commerce_audit_logs_user.create({
-      data: {
-        id: v4(),
-        admin_id: admin ? admin.id : undefined,
-        action_type: "admin_refresh_failed_account_status",
-        subject_type: "admin",
-        subject_id: admin ? admin.id : (adminId as string),
-        created_at: toISOStringSafe(new Date()),
-        ip_address: undefined,
-        device_info: undefined,
-      },
-    });
-    throw new Error("Admin account not eligible for refresh");
+  if (!admin) {
+    throw new HttpException("Admin not found", 404);
   }
-
-  const now = Date.now();
-  const oneHourMs = 60 * 60 * 1000;
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
-  const expired_at = toISOStringSafe(new Date(now + oneHourMs));
-  const refreshable_until = toISOStringSafe(new Date(now + sevenDaysMs));
-
-  const payload = {
-    id: admin.id,
-    type: "admin",
-  };
-  const access = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "1h",
-    issuer: "autobe",
-  });
-  const refresh = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "7d",
-    issuer: "autobe",
-  });
-
-  await MyGlobal.prisma.ai_commerce_audit_logs_user.create({
+  if (
+    admin.status !== "active" ||
+    admin.deleted_at !== null ||
+    (admin.kyc_status !== "verified" && admin.kyc_status !== "pending")
+  ) {
+    throw new HttpException("Admin not eligible for token refresh", 403);
+  }
+  const accessExpire = new Date(Date.now() + 60 * 60 * 1000);
+  const refreshExpire = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const now = toISOStringSafe(new Date());
+  const accessToken = jwt.sign(
+    { id: admin.id, type: "admin" },
+    MyGlobal.env.JWT_SECRET_KEY,
+    { expiresIn: "1h", issuer: "autobe" },
+  );
+  const refreshTokenNew = jwt.sign(
+    { id: admin.id, type: "admin" },
+    MyGlobal.env.JWT_SECRET_KEY,
+    { expiresIn: "7d", issuer: "autobe" },
+  );
+  await MyGlobal.prisma.shopping_mall_admin_snapshots.create({
     data: {
       id: v4(),
-      admin_id: admin.id,
-      action_type: "admin_refresh_success",
-      subject_type: "admin",
-      subject_id: admin.id,
-      created_at: toISOStringSafe(new Date()),
-      ip_address: undefined,
-      device_info: undefined,
+      shopping_mall_admin_id: admin.id,
+      snapshot_data: JSON.stringify({ ...admin, updated_at: now }),
+      created_at: now,
     },
   });
-
+  await MyGlobal.prisma.shopping_mall_admins.update({
+    where: { id: admin.id },
+    data: { updated_at: now },
+  });
   return {
     id: admin.id,
+    email: admin.email,
+    name: admin.name,
+    status: admin.status,
+    kyc_status: admin.kyc_status,
+    created_at: toISOStringSafe(admin.created_at),
+    updated_at: now,
+    deleted_at:
+      admin.deleted_at !== null ? toISOStringSafe(admin.deleted_at) : undefined,
     token: {
-      access,
-      refresh,
-      expired_at,
-      refreshable_until,
+      access: accessToken,
+      refresh: refreshTokenNew,
+      expired_at: toISOStringSafe(accessExpire),
+      refreshable_until: toISOStringSafe(refreshExpire),
     },
   };
 }

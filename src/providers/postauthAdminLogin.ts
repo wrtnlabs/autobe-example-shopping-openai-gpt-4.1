@@ -1,128 +1,85 @@
-import jwt from "jsonwebtoken";
-import { MyGlobal } from "../MyGlobal";
-import typia, { tags } from "typia";
+import { HttpException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import typia, { tags } from "typia";
 import { v4 } from "uuid";
-import { toISOStringSafe } from "../util/toISOStringSafe";
-import { IAiCommerceAdmin } from "@ORGANIZATION/PROJECT-api/lib/structures/IAiCommerceAdmin";
+import { MyGlobal } from "../MyGlobal";
+import { PasswordUtil } from "../utils/PasswordUtil";
+import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-/**
- * 로그인/인증 엔드포인트 (관리자용, ai_commerce_admin 테이블)
- *
- * 관리자 계정 이메일/비밀번호 조합으로 인증 및 토큰 발급. 활성 상태가 아닐 경우 인증 불가. 모든 로그인 시도는 증거/감사를 위해
- * ai_commerce_audit_logs_user 테이블에 기록됨. 로그인이 성공하면 인증
- * 세션(ai_commerce_user_authentications) 생성, 토큰 구조와 만료 정보 포함 반환. 실패(미존재, 정지/삭제,
- * 비밀번호 불일치)는 모두 차별화 없이 동일 오류 반환하며 상세 상태 노출 안함.
- *
- * @param props - { body: 로그인 요청 (이메일/비밀번호) }
- * @returns 관리자 id, access·refresh 토큰, 만료 정보
- * @throws {Error} 인증 실패(이메일, 비밀번호, 정지/삭제)
- */
-export async function postauthAdminLogin(props: {
-  body: IAiCommerceAdmin.ILogin;
-}): Promise<IAiCommerceAdmin.IAuthorized> {
-  const { body } = props;
-  // 1. 관리자 계정 조회(삭제되지 않음)
-  const admin = await MyGlobal.prisma.ai_commerce_admin.findFirst({
-    where: { email: body.email, deleted_at: null },
+import { IShoppingMallAdmin } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallAdmin";
+import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
+
+export async function postAuthAdminLogin(props: {
+  body: IShoppingMallAdmin.ILogin;
+}): Promise<IShoppingMallAdmin.IAuthorized> {
+  const { email, password } = props.body;
+
+  // Step 1: Find admin by email (not deleted)
+  const admin = await MyGlobal.prisma.shopping_mall_admins.findFirst({
+    where: { email, deleted_at: null },
   });
-  // 2. 계정 존재/상태 확인
-  if (!admin || admin.status !== "active") {
-    // 감사로그 기록 (실패)
-    await MyGlobal.prisma.ai_commerce_audit_logs_user.create({
-      data: {
-        id: v4() as string & tags.Format<"uuid">,
-        admin_id: admin ? admin.id : undefined,
-        action_type: "login",
-        subject_type: "admin",
-        subject_id: admin ? admin.id : (v4() as string & tags.Format<"uuid">),
-        ip_address: undefined,
-        device_info: undefined,
-        created_at: toISOStringSafe(new Date()),
-      },
-    });
-    throw new Error("Invalid credentials");
+
+  // Step 2: Validate admin status/state (must be active, verified, not deleted)
+  if (
+    !admin ||
+    admin.status !== "active" ||
+    admin.kyc_status !== "verified" ||
+    admin.deleted_at !== null
+  ) {
+    throw new HttpException(
+      "Invalid credentials or account not active/verified",
+      401,
+    );
   }
-  // 3. 비밀번호 검증
-  const passwordMatch = await MyGlobal.password.verify(
-    body.password,
-    admin.password_hash,
-  );
-  if (!passwordMatch) {
-    await MyGlobal.prisma.ai_commerce_audit_logs_user.create({
-      data: {
-        id: v4() as string & tags.Format<"uuid">,
-        admin_id: admin.id,
-        action_type: "login",
-        subject_type: "admin",
-        subject_id: admin.id,
-        ip_address: undefined,
-        device_info: undefined,
-        created_at: toISOStringSafe(new Date()),
-      },
-    });
-    throw new Error("Invalid credentials");
+
+  // Step 3: Validate password
+  const passwordHash = admin.password_hash;
+  const passwordValid =
+    typeof passwordHash === "string" &&
+    passwordHash.length > 0 &&
+    (await PasswordUtil.verify(password, passwordHash));
+  if (!passwordValid) {
+    throw new HttpException("Invalid credentials", 401);
   }
-  // 4. 토큰/세션 관련 시간 생성(문자열)
-  const now = toISOStringSafe(new Date());
-  const accessExpMs = 60 * 60 * 1000; // 1h
-  const refreshExpMs = 7 * 24 * 60 * 60 * 1000; // 7d
-  const accessUntil = toISOStringSafe(new Date(Date.now() + accessExpMs));
-  const refreshUntil = toISOStringSafe(new Date(Date.now() + refreshExpMs));
-  // 5. JWT 생성 (payload 구조: { id, type: "admin" })
-  const access = jwt.sign(
-    { id: admin.id, type: "admin" },
-    MyGlobal.env.JWT_SECRET_KEY,
-    {
-      expiresIn: "1h",
-      issuer: "autobe",
-    },
-  );
-  const refresh = jwt.sign(
-    { id: admin.id, type: "admin" },
-    MyGlobal.env.JWT_SECRET_KEY,
-    {
-      expiresIn: "7d",
-      issuer: "autobe",
-    },
-  );
-  // 6. 인증 세션 기록
-  await MyGlobal.prisma.ai_commerce_user_authentications.create({
-    data: {
-      id: v4() as string & tags.Format<"uuid">,
-      admin_id: admin.id,
-      method: "password",
-      device_info: undefined,
-      ip_address: undefined,
-      session_expires_at: refreshUntil,
-      created_at: now,
-      updated_at: now,
-      deleted_at: undefined,
-      buyer_id: undefined,
-    },
+
+  // Step 4: Prepare expiration date strings (ISO - do not use Date type variables)
+  const nowMs = Date.now();
+  const accessExpIso = toISOStringSafe(new Date(nowMs + 60 * 60 * 1000)); // 1h
+  const refreshExpIso = toISOStringSafe(
+    new Date(nowMs + 7 * 24 * 60 * 60 * 1000),
+  ); // 7d
+
+  // Step 5: Issue JWT tokens
+  const accessPayload = { id: admin.id, type: "admin" };
+  const refreshPayload = { id: admin.id, type: "admin" };
+  const accessToken = jwt.sign(accessPayload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: "1h",
+    issuer: "autobe",
   });
-  // 7. 감사로그 기록 (성공)
-  await MyGlobal.prisma.ai_commerce_audit_logs_user.create({
-    data: {
-      id: v4() as string & tags.Format<"uuid">,
-      admin_id: admin.id,
-      action_type: "login",
-      subject_type: "admin",
-      subject_id: admin.id,
-      ip_address: undefined,
-      device_info: undefined,
-      created_at: now,
-      buyer_id: undefined,
-    },
+  const refreshToken = jwt.sign(refreshPayload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: "7d",
+    issuer: "autobe",
   });
-  // 8. 응답 반환 (타입 안전)
+
+  // Token structure
+  const token = {
+    access: accessToken,
+    refresh: refreshToken,
+    expired_at: accessExpIso,
+    refreshable_until: refreshExpIso,
+  };
+
+  // Compose response strictly
   return {
     id: admin.id,
-    token: {
-      access,
-      refresh,
-      expired_at: accessUntil,
-      refreshable_until: refreshUntil,
-    },
+    email: admin.email,
+    name: admin.name,
+    status: admin.status,
+    kyc_status: admin.kyc_status,
+    created_at: toISOStringSafe(admin.created_at),
+    updated_at: toISOStringSafe(admin.updated_at),
+    deleted_at: admin.deleted_at ? toISOStringSafe(admin.deleted_at) : null,
+    token,
   };
 }
