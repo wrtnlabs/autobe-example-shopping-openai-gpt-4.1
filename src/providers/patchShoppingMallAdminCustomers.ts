@@ -17,117 +17,96 @@ export async function patchShoppingMallAdminCustomers(props: {
   body: IShoppingMallCustomer.IRequest;
 }): Promise<IPageIShoppingMallCustomer.ISummary> {
   const body = props.body;
-  const page = body.page ?? 1;
-  const limit = body.limit ?? 100;
-  const skip = (page - 1) * limit;
+  const page = Number(body.page ?? 1);
+  const limit = Number(body.limit ?? 20);
 
-  // Filtering logic
-  const where = {
-    ...(body.shopping_mall_channel_id !== undefined &&
-      body.shopping_mall_channel_id !== null && {
-        shopping_mall_channel_id: body.shopping_mall_channel_id,
-      }),
-    ...(body.email !== undefined &&
-      body.email !== null && {
-        email: { contains: body.email },
-      }),
-    ...(body.name !== undefined &&
-      body.name !== null && {
-        name: { contains: body.name },
-      }),
+  const where: Record<string, unknown> = {
+    deleted_at: null,
     ...(body.status !== undefined &&
-      body.status !== null && {
-        status: body.status,
-      }),
-    ...(body.kyc_status !== undefined &&
-      body.kyc_status !== null && {
-        kyc_status: body.kyc_status,
-      }),
-    ...((body.created_after !== undefined && body.created_after !== null) ||
-    (body.created_before !== undefined && body.created_before !== null)
+      body.status !== null && { status: body.status }),
+    ...(body.email_verified !== undefined &&
+      body.email_verified !== null && { email_verified: body.email_verified }),
+    ...((body.created_from !== undefined && body.created_from !== null) ||
+    (body.created_to !== undefined && body.created_to !== null)
       ? {
           created_at: {
-            ...(body.created_after !== undefined &&
-              body.created_after !== null && { gte: body.created_after }),
-            ...(body.created_before !== undefined &&
-              body.created_before !== null && { lte: body.created_before }),
+            ...(body.created_from !== undefined &&
+              body.created_from !== null && { gte: body.created_from }),
+            ...(body.created_to !== undefined &&
+              body.created_to !== null && { lte: body.created_to }),
           },
         }
       : {}),
-    ...(body.deleted === true
-      ? { deleted_at: { not: null } }
-      : body.deleted === false
-        ? { deleted_at: null }
-        : {}),
+    ...((body.updated_from !== undefined && body.updated_from !== null) ||
+    (body.updated_to !== undefined && body.updated_to !== null)
+      ? {
+          updated_at: {
+            ...(body.updated_from !== undefined &&
+              body.updated_from !== null && { gte: body.updated_from }),
+            ...(body.updated_to !== undefined &&
+              body.updated_to !== null && { lte: body.updated_to }),
+          },
+        }
+      : {}),
+    ...(body.search !== undefined &&
+    body.search !== null &&
+    body.search.length > 0
+      ? {
+          OR: [
+            { email: { contains: body.search } },
+            { full_name: { contains: body.search } },
+            { phone: { contains: body.search } },
+          ],
+        }
+      : {}),
   };
 
-  // Sorting: parse 'sort' string like 'created_at desc' or 'name asc'
-  let orderBy: Record<string, "asc" | "desc">[] = [{ created_at: "desc" }];
-  if (body.sort && typeof body.sort === "string") {
-    orderBy = body.sort.split(",").map((s) => {
-      const [field, dir] = s.trim().split(/\s+/);
-      if (
-        [
-          "created_at",
-          "updated_at",
-          "name",
-          "email",
-          "status",
-          "kyc_status",
-        ].includes(field)
-      ) {
-        return {
-          [field]: dir && dir.toLowerCase() === "asc" ? "asc" : "desc",
-        };
-      }
-      return { created_at: "desc" };
-    });
+  const allowedSorts = ["created_at", "updated_at", "email"];
+  let sortField = "created_at";
+  if (
+    body.sort !== undefined &&
+    body.sort !== null &&
+    allowedSorts.includes(body.sort)
+  ) {
+    sortField = body.sort;
+  }
+  let sortOrder: "asc" | "desc" = "desc";
+  if (body.order === "asc" || body.order === "desc") {
+    sortOrder = body.order;
   }
 
-  // Query + total count: always inline
   const [rows, total] = await Promise.all([
     MyGlobal.prisma.shopping_mall_customers.findMany({
       where,
-      orderBy,
-      skip,
+      orderBy: { [sortField]: sortOrder },
+      skip: (page - 1) * limit,
       take: limit,
       select: {
         id: true,
-        shopping_mall_channel_id: true,
         email: true,
-        name: true,
+        full_name: true,
         status: true,
-        kyc_status: true,
+        email_verified: true,
         created_at: true,
-        updated_at: true,
-        deleted_at: true,
       },
     }),
     MyGlobal.prisma.shopping_mall_customers.count({ where }),
   ]);
 
-  // Transform rows to ISummary
-  const data: IShoppingMallCustomer.ISummary[] = rows.map((row) => ({
-    id: row.id,
-    shopping_mall_channel_id: row.shopping_mall_channel_id,
-    email: row.email,
-    name: row.name,
-    status: row.status,
-    kyc_status: row.kyc_status,
-    created_at: toISOStringSafe(row.created_at),
-    updated_at: toISOStringSafe(row.updated_at),
-    deleted_at: row.deleted_at ? toISOStringSafe(row.deleted_at) : null,
-  }));
-
-  const pagination: IPage.IPagination = {
-    current: Number(page),
-    limit: Number(limit),
-    records: total,
-    pages: Math.ceil(total / Number(limit)),
-  };
-
   return {
-    pagination,
-    data,
+    pagination: {
+      current: Number(page),
+      limit: Number(limit),
+      records: Number(total),
+      pages: Number(Math.ceil(total / limit)),
+    },
+    data: rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      full_name: row.full_name,
+      status: row.status,
+      email_verified: row.email_verified,
+      created_at: toISOStringSafe(row.created_at),
+    })),
   };
 }

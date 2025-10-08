@@ -11,67 +11,73 @@ import { IShoppingMallAdmin } from "@ORGANIZATION/PROJECT-api/lib/structures/ISh
 import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
 
 export async function postAuthAdminJoin(props: {
-  body: IShoppingMallAdmin.IJoin;
+  body: IShoppingMallAdmin.ICreate;
 }): Promise<IShoppingMallAdmin.IAuthorized> {
-  const { email, password, name } = props.body;
-  // Step 1: Enforce unique admin email per schema
-  const exists = await MyGlobal.prisma.shopping_mall_admins.findUnique({
+  const { email, password, full_name } = props.body;
+  const status = props.body.status ?? "pending";
+
+  // Check for duplicate admin email
+  const exists = await MyGlobal.prisma.shopping_mall_admins.findFirst({
     where: { email },
   });
   if (exists) {
-    throw new HttpException("Email is already registered as admin.", 409);
+    throw new HttpException("이미 등록된 관리자 이메일입니다.", 409);
   }
-  // Step 2: Hash password
+
+  // Hash the password securely
   const password_hash = await PasswordUtil.hash(password);
-  // Step 3: Prepare base info
   const now = toISOStringSafe(new Date());
-  const id = v4() as string & tags.Format<"uuid">;
-  const status = "active";
-  const kyc_status = "pending";
-  // Step 4: Insert admin
+
+  // Insert the new admin record
   const created = await MyGlobal.prisma.shopping_mall_admins.create({
     data: {
-      id,
+      id: v4(),
       email,
       password_hash,
-      name,
+      full_name,
       status,
-      kyc_status,
+      two_factor_secret: null,
       created_at: now,
       updated_at: now,
       deleted_at: null,
+      last_login_at: null,
     },
   });
-  // Step 5: JWTs: payload { id, type }
-  const access_exp = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-  const refresh_exp = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-  const access = jwt.sign(
-    { id: created.id, type: "admin" },
-    MyGlobal.env.JWT_SECRET_KEY,
-    { expiresIn: "1h", issuer: "autobe" },
-  );
+
+  // Token expiration calculation
+  const accessExpires = new Date(Date.now() + 60 * 60 * 1000);
+  const refreshExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  // JWT token generation (strict payload: id, type)
+  const payload = { id: created.id, type: "admin" };
+  const access = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: "1h",
+    issuer: "autobe",
+  });
   const refresh = jwt.sign(
-    { id: created.id, type: "admin" },
+    { ...payload, tokenType: "refresh" },
     MyGlobal.env.JWT_SECRET_KEY,
-    { expiresIn: "30d", issuer: "autobe" },
+    {
+      expiresIn: "7d",
+      issuer: "autobe",
+    },
   );
+  const token = {
+    access,
+    refresh,
+    expired_at: toISOStringSafe(accessExpires),
+    refreshable_until: toISOStringSafe(refreshExpires),
+  };
+
   return {
     id: created.id,
     email: created.email,
-    name: created.name,
+    full_name: created.full_name,
     status: created.status,
-    kyc_status: created.kyc_status,
+    last_login_at: null,
     created_at: toISOStringSafe(created.created_at),
     updated_at: toISOStringSafe(created.updated_at),
-    deleted_at:
-      created.deleted_at === null
-        ? undefined
-        : toISOStringSafe(created.deleted_at),
-    token: {
-      access,
-      refresh,
-      expired_at: toISOStringSafe(access_exp),
-      refreshable_until: toISOStringSafe(refresh_exp),
-    },
+    deleted_at: null,
+    token,
   };
 }

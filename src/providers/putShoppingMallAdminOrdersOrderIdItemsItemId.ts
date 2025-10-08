@@ -16,47 +16,108 @@ export async function putShoppingMallAdminOrdersOrderIdItemsItemId(props: {
   itemId: string & tags.Format<"uuid">;
   body: IShoppingMallOrderItem.IUpdate;
 }): Promise<IShoppingMallOrderItem> {
-  const { orderId, itemId, body } = props;
+  // (1) Verify order exists and is not fulfilled/cancelled/deleted
+  const order = await MyGlobal.prisma.shopping_mall_orders.findFirst({
+    where: {
+      id: props.orderId,
+      deleted_at: null,
+      status: { notIn: ["fulfilled", "cancelled"] },
+    },
+  });
+  if (!order) {
+    throw new HttpException("Order not found or is locked.", 400);
+  }
+
+  // (2) Verify item exists, belongs to order, not deleted
   const item = await MyGlobal.prisma.shopping_mall_order_items.findFirst({
     where: {
-      id: itemId,
-      shopping_mall_order_id: orderId,
+      id: props.itemId,
+      shopping_mall_order_id: props.orderId,
       deleted_at: null,
     },
   });
   if (!item) {
-    throw new HttpException("Order item not found", 404);
+    throw new HttpException("Order item not found.", 404);
   }
-  if (["fulfilled", "shipped", "cancelled"].includes(item.status)) {
+  // (3) Forbid updates if refund_status is locked
+  if (["refunded", "cancelled"].includes(item.refund_status)) {
     throw new HttpException(
-      "Cannot update order item after fulfillment, shipment, or cancellation.",
+      "Order item cannot be updated (locked state).",
       400,
     );
   }
-  // Use a mutable object for updates to allow dynamic keys
-  const updates: Record<string, unknown> = {
-    updated_at: toISOStringSafe(new Date()),
-  };
-  if (body.status !== undefined) updates.status = body.status;
-  if (body.final_price !== undefined) updates.final_price = body.final_price;
 
+  // (4) Compute target values
+  const targetQuantity = props.body.quantity ?? item.quantity;
+  const targetUnitPrice = props.body.unit_price ?? item.unit_price;
+  if (targetQuantity < 1) {
+    throw new HttpException("Quantity must be at least 1.", 400);
+  }
+  // (5) Calculate new item_total
+  const newItemTotal = targetQuantity * targetUnitPrice;
+
+  // (6) Update item
   const updated = await MyGlobal.prisma.shopping_mall_order_items.update({
-    where: { id: itemId },
-    data: updates,
+    where: { id: props.itemId },
+    data: {
+      quantity: props.body.quantity ?? undefined,
+      unit_price: props.body.unit_price ?? undefined,
+      item_name: props.body.item_name ?? undefined,
+      currency: props.body.currency ?? undefined,
+      refund_status: props.body.refund_status ?? undefined,
+      item_total: newItemTotal,
+      updated_at: toISOStringSafe(new Date()),
+    },
   });
 
+  // (7) Recompute order order_total (sum of items not deleted)
+  const items = await MyGlobal.prisma.shopping_mall_order_items.findMany({
+    where: {
+      shopping_mall_order_id: props.orderId,
+      deleted_at: null,
+    },
+    select: { item_total: true },
+  });
+  const newOrderTotal = items.reduce((acc, cur) => acc + cur.item_total, 0);
+  // (8) Update order.order_total
+  await MyGlobal.prisma.shopping_mall_orders.update({
+    where: { id: props.orderId },
+    data: {
+      order_total: newOrderTotal,
+      updated_at: toISOStringSafe(new Date()),
+    },
+  });
+
+  // (9) Audit log (minimal: action_type/update, domain/order_item)
+  await MyGlobal.prisma.shopping_mall_admin_action_logs.create({
+    data: {
+      id: v4(),
+      shopping_mall_admin_id: props.admin.id,
+      action_type: "update",
+      action_reason: "Order item updated by admin",
+      domain: "order_item",
+      affected_order_id: props.orderId,
+      affected_product_id: item.shopping_mall_product_sku_id,
+      details_json: JSON.stringify({
+        prev: { quantity: item.quantity, unit_price: item.unit_price },
+        next: { quantity: targetQuantity, unit_price: targetUnitPrice },
+      }),
+      created_at: toISOStringSafe(new Date()),
+    },
+  });
+
+  // (10) Return updated item in required DTO shape
   return {
     id: updated.id,
     shopping_mall_order_id: updated.shopping_mall_order_id,
-    shopping_mall_product_id: updated.shopping_mall_product_id,
-    shopping_mall_product_variant_id:
-      updated.shopping_mall_product_variant_id ?? undefined,
-    shopping_mall_seller_id: updated.shopping_mall_seller_id,
+    shopping_mall_product_sku_id: updated.shopping_mall_product_sku_id,
+    item_name: updated.item_name,
+    sku_code: updated.sku_code,
     quantity: updated.quantity,
     unit_price: updated.unit_price,
-    final_price: updated.final_price,
-    discount_snapshot: updated.discount_snapshot ?? undefined,
-    status: updated.status,
+    currency: updated.currency,
+    item_total: updated.item_total,
+    refund_status: updated.refund_status,
     created_at: toISOStringSafe(updated.created_at),
     updated_at: toISOStringSafe(updated.updated_at),
     deleted_at: updated.deleted_at

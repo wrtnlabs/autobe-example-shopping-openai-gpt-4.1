@@ -16,56 +16,93 @@ export async function patchShoppingMallAdminOrdersOrderIdItems(props: {
   admin: AdminPayload;
   orderId: string & tags.Format<"uuid">;
   body: IShoppingMallOrderItem.IRequest;
-}): Promise<IPageIShoppingMallOrderItem> {
-  const { orderId, body } = props;
+}): Promise<IPageIShoppingMallOrderItem.ISummary> {
+  const { admin, orderId, body } = props;
 
-  const page = body.page ?? (1 as number);
-  const limit = body.limit ?? (20 as number);
-  const skip = (Number(page) - 1) * Number(limit);
+  // 1. Validate order exists (404 if not found)
+  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
+    where: { id: orderId },
+  });
+  if (!order) throw new HttpException("Order not found", 404);
 
-  const where: Record<string, unknown> = {
+  // 2. Prepare pagination
+  const page = (body.page ?? 1) as number;
+  const limit = (body.limit ?? 20) as number;
+  const skip = (page - 1) * limit;
+
+  // 3. Build where conditions for table fields only
+  const where = {
     shopping_mall_order_id: orderId,
     deleted_at: null,
-    ...(body.status !== undefined && { status: body.status }),
-    ...(body.product_id !== undefined && {
-      shopping_mall_product_id: body.product_id,
-    }),
+    ...(body.status !== undefined &&
+      body.status !== null && { refund_status: body.status }),
+    ...(body.sku_code !== undefined &&
+      body.sku_code !== null && { sku_code: body.sku_code }),
+    ...(body.product_name !== undefined &&
+      body.product_name !== null && {
+        item_name: { contains: body.product_name },
+      }),
+    ...(body.search !== undefined &&
+      body.search !== null && {
+        OR: [
+          { item_name: { contains: body.search } },
+          { sku_code: { contains: body.search } },
+        ],
+      }),
   };
 
-  const [rows, count] = await Promise.all([
+  // 4. Prepare orderBy logic. Accept only allowed fields. Default: created_at desc
+  let orderBy: { [field: string]: "asc" | "desc" } = { created_at: "desc" };
+  if (body.sort && typeof body.sort === "string" && body.sort.length > 0) {
+    const sortRaw = body.sort.trim();
+    let field = sortRaw.replace(/^[-+]/, "");
+    let dir: "asc" | "desc" = sortRaw.startsWith("-") ? "desc" : "asc";
+    // Allow only safe fields:
+    const ALLOWED = ["created_at", "quantity", "item_name", "sku_code"];
+    if (ALLOWED.includes(field)) {
+      orderBy = { [field]: dir };
+    }
+  }
+
+  // 5. Query paginated data and total count
+  const [items, total] = await Promise.all([
     MyGlobal.prisma.shopping_mall_order_items.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy,
       skip,
-      take: Number(limit),
+      take: limit,
     }),
     MyGlobal.prisma.shopping_mall_order_items.count({ where }),
   ]);
 
-  const data = rows.map((it) => ({
-    id: it.id,
-    shopping_mall_order_id: it.shopping_mall_order_id,
-    shopping_mall_product_id: it.shopping_mall_product_id,
-    shopping_mall_product_variant_id:
-      it.shopping_mall_product_variant_id ?? undefined,
-    shopping_mall_seller_id: it.shopping_mall_seller_id,
-    quantity: it.quantity,
-    unit_price: it.unit_price,
-    final_price: it.final_price,
-    discount_snapshot: it.discount_snapshot ?? undefined,
-    status: it.status,
-    created_at: toISOStringSafe(it.created_at),
-    updated_at: toISOStringSafe(it.updated_at),
-    deleted_at: it.deleted_at ? toISOStringSafe(it.deleted_at) : undefined,
+  // 6. Map to ISummary (date conversion, deleted_at optional)
+  const data = items.map((row) => ({
+    id: row.id,
+    shopping_mall_order_id: row.shopping_mall_order_id,
+    shopping_mall_product_sku_id: row.shopping_mall_product_sku_id,
+    item_name: row.item_name,
+    sku_code: row.sku_code,
+    quantity: row.quantity,
+    unit_price: row.unit_price,
+    currency: row.currency,
+    item_total: row.item_total,
+    refund_status: row.refund_status,
+    created_at: toISOStringSafe(row.created_at),
+    updated_at: toISOStringSafe(row.updated_at),
+    deleted_at:
+      row.deleted_at === null ? undefined : toISOStringSafe(row.deleted_at),
   }));
 
+  // 7. Pagination block (use Number() to strip typia tags)
+  const pagination = {
+    current: Number(page),
+    limit: Number(limit),
+    records: total,
+    pages: Math.ceil(total / limit),
+  };
+
   return {
-    pagination: {
-      current: Number(page),
-      limit: Number(limit),
-      records: count,
-      pages: Math.ceil(count / Number(limit)),
-    },
+    pagination,
     data,
   };
 }

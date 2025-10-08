@@ -15,7 +15,7 @@ export async function postShoppingMallSellerProductsProductIdOptions(props: {
   productId: string & tags.Format<"uuid">;
   body: IShoppingMallProductOption.ICreate;
 }): Promise<IShoppingMallProductOption> {
-  // 1. Validate product exists and is owned by seller
+  // 1. Confirm product exists and is owned by seller
   const product = await MyGlobal.prisma.shopping_mall_products.findFirst({
     where: {
       id: props.productId,
@@ -25,50 +25,44 @@ export async function postShoppingMallSellerProductsProductIdOptions(props: {
   });
   if (!product) {
     throw new HttpException(
-      "Forbidden: You do not own this product or it does not exist.",
+      "Unauthorized: You do not own this product or it does not exist",
       403,
     );
   }
-  // 2. Check for duplicate option name for the product
-  const existingOption =
-    await MyGlobal.prisma.shopping_mall_product_options.findFirst({
-      where: {
+  // 2. Prepare new option data
+  const now = toISOStringSafe(new Date());
+  let created;
+  try {
+    created = await MyGlobal.prisma.shopping_mall_product_options.create({
+      data: {
+        id: v4(),
         shopping_mall_product_id: props.productId,
         name: props.body.name,
-        deleted_at: null,
+        display_order: props.body.display_order,
+        created_at: now,
+        updated_at: now,
       },
     });
-  if (existingOption) {
-    throw new HttpException(
-      "A product option with this name already exists for the product.",
-      409,
-    );
+  } catch (err: any) {
+    // Handle unique constraint error (duplicate name)
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      throw new HttpException(
+        "Duplicate product option name for this product.",
+        409,
+      );
+    }
+    throw err;
   }
-  // 3. Insert the new option
-  const now = toISOStringSafe(new Date());
-  const created = await MyGlobal.prisma.shopping_mall_product_options.create({
-    data: {
-      id: v4(),
-      shopping_mall_product_id: props.productId,
-      name: props.body.name,
-      required: props.body.required,
-      position: props.body.position,
-      created_at: now,
-      updated_at: now,
-      deleted_at: null,
-    },
-  });
+  // 3. Return API shape
   return {
     id: created.id,
     shopping_mall_product_id: created.shopping_mall_product_id,
     name: created.name,
-    required: created.required,
-    position: created.position,
+    display_order: created.display_order,
     created_at: toISOStringSafe(created.created_at),
     updated_at: toISOStringSafe(created.updated_at),
-    deleted_at:
-      created.deleted_at != null
-        ? toISOStringSafe(created.deleted_at)
-        : undefined,
   };
 }

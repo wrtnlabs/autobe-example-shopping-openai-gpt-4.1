@@ -15,86 +15,91 @@ export async function postAuthCustomerRefresh(props: {
 }): Promise<IShoppingMallCustomer.IAuthorized> {
   const { refresh_token } = props.body;
 
-  let decoded: any;
-  try {
-    decoded = jwt.verify(refresh_token, MyGlobal.env.JWT_SECRET_KEY, {
-      issuer: "autobe",
-    });
-  } catch (err) {
+  // 1. Find session with matching refresh_token
+  const session = await MyGlobal.prisma.shopping_mall_user_sessions.findUnique({
+    where: { refresh_token },
+  });
+  if (!session) {
     throw new HttpException("Invalid or expired refresh token", 401);
   }
 
-  // Must have valid id and type from CustomerPayload
-  if (
-    !decoded ||
-    typeof decoded.id !== "string" ||
-    decoded.type !== "customer"
-  ) {
-    throw new HttpException("Malformed refresh token", 401);
+  // 2. Check for session expiration and revocation
+  const now = new Date();
+  if (session.expires_at < now || session.revoked_at !== null) {
+    throw new HttpException("Session expired or revoked", 401);
   }
 
-  // Fetch customer
+  // 3. Retrieve the customer and check status
   const customer = await MyGlobal.prisma.shopping_mall_customers.findUnique({
-    where: { id: decoded.id },
+    where: { id: session.user_id },
   });
   if (!customer) {
-    throw new HttpException("Customer not found", 404);
+    throw new HttpException("Associated customer not found", 403);
   }
-
-  // Check customer status and not deleted
+  if (customer.deleted_at !== null) {
+    throw new HttpException("Customer account deleted", 403);
+  }
   if (
-    customer.status === "suspended" ||
-    customer.status === "withdrawn" ||
-    customer.deleted_at !== null
+    customer.status !== "active" &&
+    customer.status !== "pending_verification"
   ) {
-    throw new HttpException("Customer not eligible for token refresh", 403);
+    throw new HttpException(
+      "Customer account is not active or pending verification",
+      403,
+    );
   }
 
-  // Generate new tokens
-  const accessTokenPayload = {
+  // 4. Generate new tokens (JWT)
+  const jwtPayload = {
     id: customer.id,
     type: "customer",
   };
-  const nowUnix = Math.floor(Date.now() / 1000);
-  const accessExp = nowUnix + 60 * 60; // 1 hour
-  const refreshExp = nowUnix + 60 * 60 * 24 * 7; // 7 days
+  const expiresInSeconds = 60 * 60; // 1 hour
+  const refreshExpiresInSeconds = 7 * 24 * 60 * 60; // 7 days
+  const expiresAt = new Date(Date.now() + expiresInSeconds * 1000);
+  const refreshExpiresAt = new Date(
+    Date.now() + refreshExpiresInSeconds * 1000,
+  );
 
-  const access = jwt.sign(accessTokenPayload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "1h",
+  const newAccessToken = jwt.sign(jwtPayload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: expiresInSeconds,
     issuer: "autobe",
   });
-  const refresh = jwt.sign(accessTokenPayload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "7d",
+  const newRefreshToken = jwt.sign(jwtPayload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: refreshExpiresInSeconds,
     issuer: "autobe",
   });
 
-  // Expirations as date-time strings
-  const accessExpiredAt = toISOStringSafe(new Date(accessExp * 1000));
-  const refreshExpiredAt = toISOStringSafe(new Date(refreshExp * 1000));
+  // 5. Update session with new tokens
+  await MyGlobal.prisma.shopping_mall_user_sessions.update({
+    where: { id: session.id },
+    data: {
+      access_token: newAccessToken,
+      refresh_token: newRefreshToken,
+      expires_at: expiresAt,
+      revoked_at: null,
+    },
+  });
 
-  // Prepare response
+  // 6. Return the full authorized DTO
   return {
     id: customer.id,
-    shopping_mall_channel_id: customer.shopping_mall_channel_id,
     email: customer.email,
-    phone:
-      customer.phone === null || typeof customer.phone === "undefined"
-        ? null
-        : customer.phone,
-    name: customer.name,
+    full_name: customer.full_name,
+    phone: customer.phone,
     status: customer.status,
-    kyc_status: customer.kyc_status,
+    email_verified: customer.email_verified,
     created_at: toISOStringSafe(customer.created_at),
     updated_at: toISOStringSafe(customer.updated_at),
     deleted_at:
-      typeof customer.deleted_at === "undefined" || customer.deleted_at === null
-        ? undefined
-        : toISOStringSafe(customer.deleted_at),
+      customer.deleted_at !== null
+        ? toISOStringSafe(customer.deleted_at)
+        : null,
     token: {
-      access,
-      refresh,
-      expired_at: accessExpiredAt,
-      refreshable_until: refreshExpiredAt,
+      access: newAccessToken,
+      refresh: newRefreshToken,
+      expired_at: toISOStringSafe(expiresAt),
+      refreshable_until: toISOStringSafe(refreshExpiresAt),
     },
   };
 }

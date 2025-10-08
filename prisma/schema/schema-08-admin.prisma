@@ -1,0 +1,284 @@
+/// Records all administrative actions performed on the platform (approvals,
+/// bans, suspensions, overrides, etc.) for compliance, transparency, and
+/// audit purposes. Each log links to the acting admin ({@link
+/// shopping_mall_admins}), the affected entity (customer, seller, product,
+/// order, or review), with domain information embedded. Used for
+/// investigation, reporting, and full platform accountability.
+///
+/// @namespace Admin
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_admin_action_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Acting admin's {@link shopping_mall_admins.id}.
+  shopping_mall_admin_id String
+  
+  /// Affected customer's {@link shopping_mall_customers.id}, if applicable.
+  affected_customer_id String?
+  
+  /// Affected seller's {@link shopping_mall_sellers.id}, if applicable.
+  affected_seller_id String?
+  
+  /// Affected product's {@link shopping_mall_products.id}, if applicable.
+  affected_product_id String?
+  
+  /// Affected order's {@link shopping_mall_orders.id}, if applicable.
+  affected_order_id String?
+  
+  /// Affected review's {@link shopping_mall_reviews.id}, if applicable.
+  affected_review_id String?
+  
+  /// Type of admin action (e.g., approval, ban, suspend, override, edit,
+  /// restore, etc.).
+  action_type String
+  
+  /// Reason for the admin action. Required for compliance and audit.
+  action_reason String
+  
+  /// Domain or entity type affected (customer, seller, product, order, review,
+  /// system, etc.)
+  domain String
+  
+  /// Serialized JSON with structured context for the action: pre/post values,
+  /// audit context.
+  details_json String?
+  
+  /// Timestamp of log creation (action performed).
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_admins @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  affectedCustomer shopping_mall_customers? @relation(fields: [affected_customer_id], references: [id], onDelete: Cascade)
+  affectedSeller shopping_mall_sellers? @relation(fields: [affected_seller_id], references: [id], onDelete: Cascade)
+  affectedProduct shopping_mall_products? @relation(fields: [affected_product_id], references: [id], onDelete: Cascade)
+  affectedOrder shopping_mall_orders? @relation(fields: [affected_order_id], references: [id], onDelete: Cascade)
+  affectedReview shopping_mall_reviews? @relation(fields: [affected_review_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_admin_id])
+  @@index([affected_customer_id])
+  @@index([affected_seller_id])
+  @@index([affected_product_id])
+  @@index([affected_order_id])
+  @@index([affected_review_id])
+  @@index([created_at])
+}
+
+/// Long-retention, immutable logs of all critical platform-wide
+/// administrative actions/events for compliance, investigations, and
+/// regulatory review. Covers logins, permission grants, system settings
+/// changes, configuration edits, and explicit admin actions. Linked to
+/// admin, domain object, event type, and holds full context for audits.
+///
+/// @namespace Admin
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_admin_audit_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Acting admin's {@link shopping_mall_admins.id} who triggered the event.
+  shopping_mall_admin_id String
+  
+  /// Type of audit event (login, permission_grant, system_setting, etc.).
+  audit_event_type String
+  
+  /// Domain of admin action (platform, user_management, orders, products,
+  /// etc.).
+  domain String
+  
+  /// Serialized JSON context for the event, including before/after states if
+  /// applicable.
+  event_context_json String?
+  
+  /// Audit log level (info, warning, critical, etc.).
+  log_level String
+  
+  /// Time of admin action/sensitive event for audit record.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_admins @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_admin_id])
+  @@index([domain])
+  @@index([created_at])
+}
+
+/// Logs for all moderation and exception events on platform entities
+/// (products, reviews, sellers, orders). Used for operational review,
+/// moderation queue tracking, and disciplinary records. Linked to admin who
+/// performed moderation, the affected entity (by foreign key), event type,
+/// and holds a message/reason for the moderation action.
+///
+/// @namespace Admin
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_moderation_event_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Admin who performed the moderation ({@link shopping_mall_admins.id}).
+  shopping_mall_admin_id String
+  
+  /// Affected seller ({@link shopping_mall_sellers.id}), if relevant.
+  affected_seller_id String?
+  
+  /// Affected product ({@link shopping_mall_products.id}), if relevant.
+  affected_product_id String?
+  
+  /// Affected review ({@link shopping_mall_reviews.id}), if relevant.
+  affected_review_id String?
+  
+  /// Affected order ({@link shopping_mall_orders.id}), if relevant.
+  affected_order_id String?
+  
+  /// Moderation event type (flag, removal, approval, annotation, warning,
+  /// escalation, etc.).
+  event_type String
+  
+  /// Admin-provided message or reason for the moderation or exception action.
+  moderation_message String
+  
+  /// Event creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_admins @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  affectedSeller shopping_mall_sellers? @relation(fields: [affected_seller_id], references: [id], onDelete: Cascade)
+  affectedProduct shopping_mall_products? @relation(fields: [affected_product_id], references: [id], onDelete: Cascade)
+  affectedReview shopping_mall_reviews? @relation(fields: [affected_review_id], references: [id], onDelete: Cascade)
+  affectedOrder shopping_mall_orders? @relation(fields: [affected_order_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_admin_id])
+  @@index([affected_seller_id])
+  @@index([affected_product_id])
+  @@index([affected_review_id])
+  @@index([affected_order_id])
+  @@index([created_at])
+}
+
+/// Records for scheduled or executed platform notification jobs (email, SMS,
+/// push, in-app), including job config, status, retries, targeting, and
+/// results. Used for monitoring, failure re-processing, and notification
+/// delivery audit. Linked to admin or system if scheduled via dashboard.
+///
+/// @namespace Admin
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_notification_jobs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Admin who scheduled/triggered the notification job ({@link
+  /// shopping_mall_admins.id}), if applicable.
+  shopping_mall_admin_id String?
+  
+  /// Type of notification job (email, sms, push, in_app, etc.).
+  job_type String
+  
+  /// Job execution status (pending, running, success, failed, cancelled).
+  job_status String
+  
+  /// Serialized JSON array of target entity references (user IDs, segments,
+  /// topics, etc.).
+  target_json String
+  
+  /// Serialized job configuration details (template, schedule, retry logic,
+  /// etc.).
+  config_json String?
+  
+  /// Serialized result (success/failure logs, per-recipient status, error
+  /// details).
+  result_json String?
+  
+  /// Job creation timestamp.
+  created_at DateTime
+  
+  /// Timestamp of last job update (status, retries, etc.).
+  updated_at DateTime
+  
+  /// Soft deletion time for eventual cleanup, if needed.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_admins? @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_admin_id])
+  
+  @@index([job_type])
+  @@index([job_status])
+  @@index([created_at])
+  @@index([deleted_at])
+}
+
+/// Platform-level scheduled analytics or reporting triggers for dashboards,
+/// exports, or periodic aggregation. Each record represents a logical
+/// analytics run, trigger, or export job, with schedule config, status, and
+/// outcome logs. Enables comprehensive monitoring and diagnostics of
+/// analytics functions, linked to scheduling admin if set manually.
+///
+/// @namespace Admin
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_analytics_triggers {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Admin who configured/scheduled the analytics trigger ({@link
+  /// shopping_mall_admins.id}), if applicable.
+  shopping_mall_admin_id String?
+  
+  /// Analytics or aggregation trigger type (dashboard_update, report_export,
+  /// data_rebuild, etc.).
+  trigger_type String
+  
+  /// Serialized JSON for trigger schedule and config.
+  schedule_config_json String?
+  
+  /// Trigger/job status (pending, running, success, failed, cancelled).
+  status String
+  
+  /// JSON log of analytics results or errors.
+  outcome_log_json String?
+  
+  /// Trigger/job creation timestamp.
+  created_at DateTime
+  
+  /// Trigger/job last updated timestamp.
+  updated_at DateTime
+  
+  /// Soft deletion time for archival/cleanup, if applicable.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  admin shopping_mall_admins? @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_admin_id])
+  
+  @@index([trigger_type])
+  @@index([status])
+  @@index([created_at])
+  @@index([deleted_at])
+}

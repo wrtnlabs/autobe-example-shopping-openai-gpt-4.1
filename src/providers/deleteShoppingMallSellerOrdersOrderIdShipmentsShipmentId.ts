@@ -14,53 +14,61 @@ export async function deleteShoppingMallSellerOrdersOrderIdShipmentsShipmentId(p
   orderId: string & tags.Format<"uuid">;
   shipmentId: string & tags.Format<"uuid">;
 }): Promise<void> {
-  const { seller, orderId, shipmentId } = props;
+  // 1. Fetch the shipment by ID
+  const shipment =
+    await MyGlobal.prisma.shopping_mall_order_shipments.findUnique({
+      where: { id: props.shipmentId },
+    });
+  if (!shipment) throw new HttpException("Shipment not found", 404);
 
-  // Fetch shipment by ID
-  const shipment = await MyGlobal.prisma.shopping_mall_shipments.findUnique({
-    where: { id: shipmentId },
+  // 2. Shipment must belong to the given order
+  if (shipment.shopping_mall_order_id !== props.orderId)
+    throw new HttpException("Shipment does not belong to order", 403);
+
+  // 3. Fetch order, check seller owns order
+  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
+    where: { id: props.orderId },
   });
-  if (!shipment || shipment.deleted_at !== null) {
-    throw new HttpException("Shipment not found or already deleted", 404);
-  }
-  if (shipment.shopping_mall_order_id !== orderId) {
+  if (!order || order.deleted_at !== null)
+    throw new HttpException("Order not found", 404);
+  if (order.shopping_mall_seller_id !== props.seller.id)
     throw new HttpException(
-      "Shipment does not belong to the specified order",
-      404,
-    );
-  }
-  if (shipment.shopping_mall_seller_id !== seller.id) {
-    throw new HttpException(
-      "You do not have permission to delete this shipment",
+      "Unauthorized: Only order-owning seller may delete shipment",
       403,
     );
-  }
 
-  // Only allow soft delete for cancelable/pending statuses
-  const deletableStatuses = ["pending", "cancelled"];
-  if (!deletableStatuses.includes(shipment.status)) {
-    throw new HttpException(
-      "Cannot delete shipment in its current status",
-      409,
-    );
-  }
+  // 4. Business check: delivered/refunded shipment cannot be deleted
+  if (
+    shipment.status === "delivered" ||
+    shipment.status === "refunded" ||
+    shipment.delivered_at !== null
+  )
+    throw new HttpException("Cannot delete a delivered/refunded shipment", 409);
 
-  const deletedAt = toISOStringSafe(new Date());
-  await MyGlobal.prisma.shopping_mall_shipments.update({
-    where: { id: shipmentId },
-    data: { deleted_at: deletedAt },
+  // 5. Delete shipment (hard delete)
+  await MyGlobal.prisma.shopping_mall_order_shipments.delete({
+    where: { id: props.shipmentId },
   });
 
-  await MyGlobal.prisma.shopping_mall_deletion_events.create({
+  // 6. Log admin action for audit (must provide shopping_mall_admin_id - use fallback system admin or special constant)
+  // If unavailable, you might choose to skip this log entirely or raise a TODO
+  // Here, we provide a dummy UUID (system admin) for compliance
+  await MyGlobal.prisma.shopping_mall_admin_action_logs.create({
     data: {
-      id: v4() as string & tags.Format<"uuid">,
-      entity_type: "shipment",
-      entity_id: shipmentId,
-      deleted_by_id: seller.id,
-      deletion_reason: "Shipment soft deleted by seller",
-      snapshot_id: null,
-      deleted_at: deletedAt,
-      created_at: deletedAt,
+      id: v4(),
+      shopping_mall_admin_id: "00000000-0000-0000-0000-000000000000" as string &
+        tags.Format<"uuid">,
+      affected_seller_id: props.seller.id,
+      affected_order_id: order.id,
+      affected_product_id: null,
+      affected_customer_id: null,
+      affected_review_id: null,
+      action_type: "shipment_delete",
+      action_reason: "Seller deleted shipment " + props.shipmentId,
+      domain: "order_shipment",
+      details_json: null,
+      created_at: toISOStringSafe(new Date()),
     },
   });
+  return;
 }

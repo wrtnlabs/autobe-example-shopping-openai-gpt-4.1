@@ -13,75 +13,57 @@ import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IA
 export async function postAuthCustomerLogin(props: {
   body: IShoppingMallCustomer.ILogin;
 }): Promise<IShoppingMallCustomer.IAuthorized> {
-  const { shopping_mall_channel_id, email, password } = props.body;
-
-  // Query user by channel and email
+  const { email, password } = props.body;
   const customer = await MyGlobal.prisma.shopping_mall_customers.findFirst({
-    where: {
-      shopping_mall_channel_id,
-      email,
-    },
+    where: { email, deleted_at: null },
   });
-
-  // Fail if account not found
-  if (!customer) throw new HttpException("Invalid credentials.", 401);
-  // Fail if password not set
-  if (!customer.password_hash)
-    throw new HttpException("No password set for this user.", 401);
-  // Fail if account soft-deleted
-  if (customer.deleted_at)
-    throw new HttpException("Account has been deleted.", 403);
-  // Fail if suspended or withdrawn
-  if (customer.status === "suspended" || customer.status === "withdrawn") {
-    throw new HttpException("Account is suspended or withdrawn.", 403);
-  }
-
-  // Password check
-  const valid = await PasswordUtil.verify(password, customer.password_hash);
-  if (!valid) throw new HttpException("Invalid credentials.", 401);
-
-  // JWT setup per CustomerPayload (id, type)
-  const payload = { id: customer.id, type: "customer" };
-
-  const access = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "1h",
-    issuer: "autobe",
-  });
-  const refresh = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "7d",
-    issuer: "autobe",
-  });
-
-  // Calculate expiry timestamps as branded strings
-  const expired_at = toISOStringSafe(new Date(Date.now() + 60 * 60 * 1000));
-  const refreshable_until = toISOStringSafe(
-    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  if (!customer) throw new HttpException("Invalid credentials.", 404);
+  if (customer.status !== "active")
+    throw new HttpException("Account is not active.", 403);
+  if (!customer.email_verified)
+    throw new HttpException("Email address not verified.", 403);
+  const passwordMatch = await PasswordUtil.verify(
+    password,
+    customer.password_hash,
   );
-
-  const token = {
-    access,
-    refresh,
-    expired_at,
-    refreshable_until,
-  };
-
-  // Provide output per schema contract, dates converted
+  if (!passwordMatch) throw new HttpException("Invalid credentials.", 401);
+  const jwtPayload = { id: customer.id, type: "customer" };
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const accessExpiresInSec = 60 * 60;
+  const refreshExpiresInSec = 60 * 60 * 24 * 7;
+  const accessToken = jwt.sign(jwtPayload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: accessExpiresInSec,
+    issuer: "autobe",
+  });
+  const refreshToken = jwt.sign(jwtPayload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: refreshExpiresInSec,
+    issuer: "autobe",
+  });
+  const accessExpireIso = toISOStringSafe(
+    new Date((nowSeconds + accessExpiresInSec) * 1000),
+  );
+  const refreshExpireIso = toISOStringSafe(
+    new Date((nowSeconds + refreshExpiresInSec) * 1000),
+  );
+  // (Removed incorrect audit update of last_login_at field, wasn't in schema)
   return {
     id: customer.id,
-    shopping_mall_channel_id: customer.shopping_mall_channel_id,
     email: customer.email,
-    phone:
-      customer.phone !== undefined && customer.phone !== null
-        ? customer.phone
-        : undefined,
-    name: customer.name,
+    full_name: customer.full_name,
+    phone: customer.phone,
     status: customer.status,
-    kyc_status: customer.kyc_status,
+    email_verified: customer.email_verified,
     created_at: toISOStringSafe(customer.created_at),
     updated_at: toISOStringSafe(customer.updated_at),
-    deleted_at: customer.deleted_at
-      ? toISOStringSafe(customer.deleted_at)
-      : undefined,
-    token,
+    deleted_at:
+      customer.deleted_at === null
+        ? undefined
+        : toISOStringSafe(customer.deleted_at),
+    token: {
+      access: accessToken,
+      refresh: refreshToken,
+      expired_at: accessExpireIso,
+      refreshable_until: refreshExpireIso,
+    },
   };
 }

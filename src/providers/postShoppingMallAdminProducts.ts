@@ -14,72 +14,73 @@ export async function postShoppingMallAdminProducts(props: {
   admin: AdminPayload;
   body: IShoppingMallProduct.ICreate;
 }): Promise<IShoppingMallProduct> {
-  try {
-    const now = toISOStringSafe(new Date());
-    const created = await MyGlobal.prisma.shopping_mall_products.create({
-      data: {
-        id: v4(),
-        shopping_mall_seller_id: props.body.shopping_mall_seller_id,
-        shopping_mall_channel_id: props.body.shopping_mall_channel_id,
-        shopping_mall_section_id: props.body.shopping_mall_section_id,
-        shopping_mall_category_id: props.body.shopping_mall_category_id,
-        code: props.body.code,
-        name: props.body.name,
-        status: props.body.status,
-        business_status: props.body.business_status,
-        created_at: now,
-        updated_at: now,
-        deleted_at: null,
-      },
-      select: {
-        id: true,
-        shopping_mall_seller_id: true,
-        shopping_mall_channel_id: true,
-        shopping_mall_section_id: true,
-        shopping_mall_category_id: true,
-        code: true,
-        name: true,
-        status: true,
-        business_status: true,
-        created_at: true,
-        updated_at: true,
-        deleted_at: true,
-      },
-    });
-    return {
-      id: created.id,
-      shopping_mall_seller_id: created.shopping_mall_seller_id,
-      shopping_mall_channel_id: created.shopping_mall_channel_id,
-      shopping_mall_section_id: created.shopping_mall_section_id,
-      shopping_mall_category_id: created.shopping_mall_category_id,
-      code: created.code,
-      name: created.name,
-      status: created.status,
-      business_status: created.business_status,
-      created_at: toISOStringSafe(created.created_at),
-      updated_at: toISOStringSafe(created.updated_at),
-      deleted_at:
-        created.deleted_at !== null
-          ? toISOStringSafe(created.deleted_at)
-          : null,
-    };
-  } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      throw new HttpException(
-        "Product code already exists for this seller.",
-        409,
-      );
-    }
-    const errorMessage =
-      typeof err === "object" &&
-      err !== null &&
-      "message" in err &&
-      typeof (err as any).message === "string"
-        ? (err as any).message
-        : "Unknown error";
-    throw new HttpException("Failed to create product: " + errorMessage, 500);
+  const { body } = props;
+
+  // 1. Check for duplicate product name for this seller (unique on seller and name)
+  const duplicate = await MyGlobal.prisma.shopping_mall_products.findFirst({
+    where: {
+      shopping_mall_seller_id: body.shopping_mall_seller_id,
+      name: body.name,
+      deleted_at: null,
+    },
+  });
+  if (duplicate) {
+    throw new HttpException(
+      "A product with this name already exists for this seller.",
+      409,
+    );
   }
+
+  // 2. Check category exists, is active, and is a leaf (no child category referencing it as parent_id)
+  const category = await MyGlobal.prisma.shopping_mall_categories.findUnique({
+    where: { id: body.shopping_mall_category_id },
+  });
+  if (!category) {
+    throw new HttpException("Invalid category: Not found.", 400);
+  }
+  if (!category.is_active) {
+    throw new HttpException("The specified category is inactive.", 400);
+  }
+  // category is a leaf if there are no children with parent_id = category.id
+  const childCount = await MyGlobal.prisma.shopping_mall_categories.count({
+    where: { parent_id: category.id },
+  });
+  if (childCount > 0) {
+    throw new HttpException(
+      "Cannot assign a product to a non-leaf category.",
+      400,
+    );
+  }
+
+  // 3. Insert new product
+  const now = toISOStringSafe(new Date());
+  const created = await MyGlobal.prisma.shopping_mall_products.create({
+    data: {
+      id: v4() as string & tags.Format<"uuid">,
+      shopping_mall_seller_id: body.shopping_mall_seller_id,
+      shopping_mall_category_id: body.shopping_mall_category_id,
+      name: body.name,
+      description: body.description,
+      is_active: body.is_active,
+      main_image_url: body.main_image_url ?? undefined,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
+    },
+  });
+
+  // 4. Return product DTO
+  return {
+    id: created.id,
+    name: created.name,
+    description: created.description,
+    is_active: created.is_active,
+    main_image_url: created.main_image_url ?? undefined,
+    created_at: toISOStringSafe(created.created_at),
+    updated_at: toISOStringSafe(created.updated_at),
+    deleted_at:
+      created.deleted_at === null || created.deleted_at === undefined
+        ? undefined
+        : toISOStringSafe(created.deleted_at),
+  };
 }

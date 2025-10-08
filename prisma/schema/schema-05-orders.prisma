@@ -1,0 +1,570 @@
+/// Main order header table representing the root transaction for customer
+/// purchases. Each order records customer, (optional) seller, overall
+/// status, pricing summary, key dates, and links to full audit and lifecycle
+/// trail. Core business entity for CRUD operations. References related
+/// entities: shopping_mall_customers, shopping_mall_sellers,
+/// shopping_mall_order_addresses, shopping_mall_order_payment_methods. Audit
+/// fields support recovery and traceability across lifecycles.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_orders {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged customer's {@link shopping_mall_customers.id}.
+  shopping_mall_customer_id String
+  
+  /// Optional seller ref for marketplace cases; null for multi-seller split
+  /// orders. References {@link shopping_mall_sellers.id}.
+  shopping_mall_seller_id String?
+  
+  /// Snapshot of shipping address at time of order creation. References {@link
+  /// shopping_mall_order_addresses.id}.
+  shipping_address_id String
+  
+  /// Snapshot of payment method at time of order. References {@link
+  /// shopping_mall_order_payment_methods.id}.
+  payment_method_id String
+  
+  /// Globally unique business order number (external/public facing).
+  order_number String
+  
+  /// Current order status (e.g., pending, paid, processing, shipped,
+  /// delivered, cancelled).
+  status String
+  
+  /// Order workflow or business state (e.g., hold, review, escalated).
+  business_status String?
+  
+  /// Total price for entire order (including item total, shipping fee,
+  /// discount applied, etc.).
+  order_total Float
+  
+  /// Currency code (e.g., USD, KRW).
+  currency String
+  
+  /// Timestamp when order was placed by customer.
+  placed_at DateTime
+  
+  /// Timestamp when payment was completed (if completed).
+  paid_at DateTime?
+  
+  /// Timestamp when order fully fulfilled (shipped/delivered, if applicable).
+  fulfilled_at DateTime?
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  /// Record last modification timestamp.
+  updated_at DateTime
+  
+  /// Soft-deletion timestamp if record is logically deleted.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_sellers? @relation(fields: [shopping_mall_seller_id], references: [id], onDelete: Cascade)
+  shippingAddress shopping_mall_order_addresses @relation(fields: [shipping_address_id], references: [id], onDelete: Cascade)
+  paymentMethod shopping_mall_order_payment_methods @relation(fields: [payment_method_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_order_items shopping_mall_order_items[]
+  shopping_mall_order_shipments shopping_mall_order_shipments[]
+  shopping_mall_order_status_history shopping_mall_order_status_history[]
+  shopping_mall_order_payments shopping_mall_order_payments[]
+  shopping_mall_order_cancellations shopping_mall_order_cancellations[]
+  shopping_mall_order_refunds shopping_mall_order_refunds[]
+  shopping_mall_reviews shopping_mall_reviews[]
+  shopping_mall_order_histories shopping_mall_order_histories[]
+  shopping_mall_escalations shopping_mall_escalations[]
+  shopping_mall_admin_action_logs shopping_mall_admin_action_logs[]
+  shopping_mall_moderation_event_logs shopping_mall_moderation_event_logs[]
+  
+  @@index([shipping_address_id])
+  @@index([payment_method_id])
+  
+  @@unique([order_number])
+  @@index([shopping_mall_customer_id])
+  @@index([shopping_mall_seller_id])
+  @@index([created_at])
+}
+
+/// Items table detailing specific SKUs and quantities included in an order.
+/// One-to-many from shopping_mall_orders. Each row references a purchased
+/// SKU, pricing, quantity, item-level refund/cancellation state. Always
+/// managed through parent order. References shopping_mall_order,
+/// shopping_mall_product_skus.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_items {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Purchased SKU's {@link shopping_mall_product_skus.id}.
+  shopping_mall_product_sku_id String
+  
+  /// Display name of the product/SKU at time of purchase (for history,
+  /// snapshot).
+  item_name String
+  
+  /// SKU business code/string.
+  sku_code String
+  
+  /// Units purchased for this SKU.
+  quantity Int
+  
+  /// Unit price at time of purchase.
+  unit_price Float
+  
+  /// Currency code for the item pricing.
+  currency String
+  
+  /// Item-level total (quantity * unit price less discounts, if any).
+  item_total Float
+  
+  /// Item-level refund/cancellation state. E.g., none, pending, refunded,
+  /// cancelled.
+  refund_status String
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  /// Record last modification timestamp.
+  updated_at DateTime
+  
+  /// Soft-deletion timestamp if record is logically deleted.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  productSku shopping_mall_product_skus @relation(fields: [shopping_mall_product_sku_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_product_sku_id])
+  
+  @@unique([shopping_mall_order_id, shopping_mall_product_sku_id], map: "shopping_mall_order_items_shopping_mall_order_id_shopp_2b0619a8")
+  @@index([shopping_mall_order_id])
+}
+
+/// Tracks individual shipments for an order (may be multiple if split
+/// fulfillment). References order and contains carrier, tracking, status,
+/// and key shipment events. Supports sub-order (split shipment) for
+/// multi-seller cases. Always subsidiary to parent order.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_shipments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Business code for shipment/sub-shipment. Uniquely identifies shipment
+  /// within order.
+  shipment_number String
+  
+  /// Carrier name (logistics partner, e.g., CJ, FedEx, Sagawa).
+  carrier String
+  
+  /// Carrier-provided tracking number.
+  tracking_number String?
+  
+  /// Current shipment status (e.g., pending, shipped, in_transit,
+  /// out_for_delivery, delivered, returned, cancelled).
+  status String
+  
+  /// Timestamp when shipment was dispatched/handed to carrier.
+  dispatched_at DateTime?
+  
+  /// Timestamp when shipment was delivered.
+  delivered_at DateTime?
+  
+  /// Seller/admin comments, special instructions or internal notes.
+  remark String?
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  /// Record last modification timestamp.
+  updated_at DateTime
+  
+  /// Soft-deletion timestamp if record is logically deleted.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  
+  @@unique([shopping_mall_order_id, shipment_number], map: "shopping_mall_order_shipments_shopping_mall_order_id_s_d425205c")
+  @@index([shopping_mall_order_id])
+  @@index([carrier])
+}
+
+/// Transactional timeline of order status/state changes over lifecycle
+/// (e.g., placed, paid, shipped, delivered, cancelled, returned). Supports
+/// audit, review, and order history trace. Each event links to parent order
+/// and optionally actor (customer, seller, admin).
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_status_history {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Event initiator's customer id (if actioned by customer, optional).
+  /// References {@link shopping_mall_customers.id}.
+  actor_customer_id String?
+  
+  /// Event initiator's seller id (if actioned by seller, optional). References
+  /// {@link shopping_mall_sellers.id}.
+  actor_seller_id String?
+  
+  /// Event initiator's admin id (if actioned by admin, optional). References
+  /// {@link shopping_mall_admins.id}.
+  actor_admin_id String?
+  
+  /// Type of order event (placed, status_change, cancel_requested,
+  /// refund_requested, shipment_updated, etc).
+  event_type String
+  
+  /// Order status before transition (for audit/history).
+  status_before String?
+  
+  /// Order status after transition (for audit/history).
+  status_after String?
+  
+  /// Event comment, explanation, or internal note for audit.
+  message String?
+  
+  /// Timeline event creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  actorCustomer shopping_mall_customers? @relation(fields: [actor_customer_id], references: [id], onDelete: Cascade)
+  actorSeller shopping_mall_sellers? @relation(fields: [actor_seller_id], references: [id], onDelete: Cascade)
+  actorAdmin shopping_mall_admins? @relation(fields: [actor_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([actor_customer_id])
+  @@index([actor_seller_id])
+  @@index([actor_admin_id])
+  
+  @@index([shopping_mall_order_id])
+  @@index([event_type])
+}
+
+/// Payment records tied to an order: captures attempted/actual payments,
+/// retries, refunds, payment gateway responses, and reconciliation. Possible
+/// for multi/partial payments per order. References parent order and payment
+/// method snapshot. Subsidiary entity managed via order actions.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_payments {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Payment method used (payment method snapshot). References {@link
+  /// shopping_mall_order_payment_methods.id}.
+  order_payment_method_id String
+  
+  /// External payment processor/gateway reference/transaction id.
+  payment_ref String
+  
+  /// Payment method type (e.g., card, bank_transfer, paypal, toss).
+  payment_type String
+  
+  /// Payment current status (authorized, captured, failed, refunded, pending).
+  status String
+  
+  /// Amount that was paid (for this payment event).
+  paid_amount Float
+  
+  /// Currency code.
+  currency String
+  
+  /// Timestamp of payment success (if success).
+  paid_at DateTime?
+  
+  /// When payment record reconciled with external/bank/accounting records.
+  reconciliation_at DateTime?
+  
+  /// Failure cause/detail if payment was not successful (from gateway or
+  /// business rule).
+  fail_reason String?
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  /// Record update timestamp.
+  updated_at DateTime
+  
+  /// Soft delete timestamp for logical deletion.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  paymentMethod shopping_mall_order_payment_methods @relation(fields: [order_payment_method_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_order_refunds shopping_mall_order_refunds[]
+  
+  @@unique([payment_ref])
+  @@index([shopping_mall_order_id])
+  @@index([order_payment_method_id])
+}
+
+/// Cancellation requests/events for orders. Includes state, reason, status
+/// (pending/approved/denied), actors, timestamps, and audit. Each references
+/// parent order and, optionally, linked payment/refund/reason. Critical for
+/// compliance and business event auditing. Subsidiary entity.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_cancellations {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Customer who requested the cancellation (nullable if not a
+  /// customer-initiated event). References {@link shopping_mall_customers.id}.
+  initiator_customer_id String?
+  
+  /// Seller who initiated or handled cancellation, if relevant. References
+  /// {@link shopping_mall_sellers.id}.
+  initiator_seller_id String?
+  
+  /// Admin who handled or initiated the cancellation. References {@link
+  /// shopping_mall_admins.id}.
+  initiator_admin_id String?
+  
+  /// Business reason code for cancellation (customer_request, fraud_suspected,
+  /// oos, seller_failure, etc.).
+  reason_code String
+  
+  /// Current cancellation request status (pending, approved, denied,
+  /// completed, etc.).
+  status String
+  
+  /// Explanation or justification text for this cancellation event (optional,
+  /// for audit/appeal).
+  explanation String?
+  
+  /// Timestamp when cancellation was requested.
+  requested_at DateTime
+  
+  /// Timestamp when cancellation resolved/closed.
+  resolved_at DateTime?
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  /// Record last modification timestamp.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  initiatorCustomer shopping_mall_customers? @relation(fields: [initiator_customer_id], references: [id], onDelete: Cascade)
+  initiatorSeller shopping_mall_sellers? @relation(fields: [initiator_seller_id], references: [id], onDelete: Cascade)
+  initiatorAdmin shopping_mall_admins? @relation(fields: [initiator_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([initiator_customer_id])
+  @@index([initiator_seller_id])
+  @@index([initiator_admin_id])
+  
+  @@index([shopping_mall_order_id])
+  @@index([status])
+}
+
+/// Refund events for orders or specific items. Each entry records refund
+/// request, approval/denial, status, payout, linkage to payments if
+/// relevant. Required for financial, compliance, and customer-service audit.
+/// Subsidiary under parent order but may reference payments/items for
+/// detail.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_refunds {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Order payment this refund event is against/reference. References {@link
+  /// shopping_mall_order_payments.id}.
+  refunded_payment_id String?
+  
+  /// Customer who requested the refund (nullable if admin-driven).
+  initiator_customer_id String?
+  
+  /// Admin who approved/denied/handled this refund event, if any.
+  initiator_admin_id String?
+  
+  /// Business reason code for refund (customer_cancel, failed_delivery,
+  /// defective, overcharge, goodwill, etc).
+  reason_code String
+  
+  /// Current refund event status (pending, approved, denied, completed,
+  /// failed, etc).
+  status String
+  
+  /// Amount refunded by this event (partial/full allowed).
+  refund_amount Float
+  
+  /// Currency code.
+  currency String
+  
+  /// When refund was requested.
+  requested_at DateTime
+  
+  /// When refund was settled or completed (payout occurred).
+  settled_at DateTime?
+  
+  /// Free-text explanation for audit and escalations.
+  explanation String?
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  /// Record last update timestamp.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  refundedPayment shopping_mall_order_payments? @relation(fields: [refunded_payment_id], references: [id], onDelete: Cascade)
+  initiatorCustomer shopping_mall_customers? @relation(fields: [initiator_customer_id], references: [id], onDelete: Cascade)
+  initiatorAdmin shopping_mall_admins? @relation(fields: [initiator_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([initiator_customer_id])
+  @@index([initiator_admin_id])
+  
+  @@index([shopping_mall_order_id])
+  @@index([refunded_payment_id])
+}
+
+/// Order-level snapshot of address used for shipping and/or billing at order
+/// time. Ensures point-in-time accuracy regardless of later address edits or
+/// deletions by customer. Used for legal/audit/compliance and accurate
+/// historical recordkeeping. Subsidiary to order, referenced by order header
+/// and possibly by shipments.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_addresses {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Type: shipping or billing or both (string code).
+  address_type String
+  
+  /// Recipient's full name at time of order.
+  recipient_name String
+  
+  /// Recipient's phone number/contact at time of order.
+  phone String
+  
+  /// Postal code.
+  zip_code String
+  
+  /// Main address (street, city, etc).
+  address_main String
+  
+  /// Detailed address/apt/suite/floor, etc.
+  address_detail String?
+  
+  /// ISO country code at time of order.
+  country_code String
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  shopping_mall_orders shopping_mall_orders[]
+  
+  @@index([country_code])
+}
+
+/// Snapshot of specific payment method used at order time (for audit and
+/// accurate replay). Stores payment method info as of order placement.
+/// References from orders and order_payments to ensure point-in-time method
+/// data. Subsidiary only, never accessed independently.
+///
+/// @namespace Orders
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_payment_methods {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Type of method (e.g., card, bank_transfer, paypal, virtual_account).
+  payment_method_type String
+  
+  /// JSON or encoded data for this payment method at time of order (e.g.,
+  /// masked card, bank name, etc).
+  method_data String
+  
+  /// Masked or obfuscated display for UI (e.g., Visa ****1234).
+  display_name String
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  shopping_mall_orders shopping_mall_orders[]
+  shopping_mall_order_payments shopping_mall_order_payments[]
+}

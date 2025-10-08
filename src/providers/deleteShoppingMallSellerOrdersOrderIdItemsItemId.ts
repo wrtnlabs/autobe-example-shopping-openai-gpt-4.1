@@ -14,56 +14,49 @@ export async function deleteShoppingMallSellerOrdersOrderIdItemsItemId(props: {
   orderId: string & tags.Format<"uuid">;
   itemId: string & tags.Format<"uuid">;
 }): Promise<void> {
-  // Step 1: Find order item (must exist, match order, belong to seller)
-  const orderItem = await MyGlobal.prisma.shopping_mall_order_items.findUnique({
-    where: { id: props.itemId },
+  // Step 1: Find the order item and join to product via SKU
+  const item = await MyGlobal.prisma.shopping_mall_order_items.findFirst({
+    where: {
+      id: props.itemId,
+      shopping_mall_order_id: props.orderId,
+      deleted_at: null,
+    },
+    include: {
+      productSku: {
+        include: {
+          product: true,
+        },
+      },
+    },
   });
-  if (!orderItem) {
-    throw new HttpException("Order item not found", 404);
+  if (!item) {
+    throw new HttpException("Order item not found for the given order.", 404);
   }
-  if (orderItem.shopping_mall_order_id !== props.orderId) {
+  // Step 2: Validate ownership (seller must own the product)
+  if (!item.productSku || !item.productSku.product) {
+    throw new HttpException("Order item product info missing.", 500);
+  }
+  if (item.productSku.product.shopping_mall_seller_id !== props.seller.id) {
     throw new HttpException(
-      "Order item does not belong to specified order",
-      404,
+      "Unauthorized: Cannot remove items for products you do not own.",
+      403,
     );
   }
-  if (orderItem.shopping_mall_seller_id !== props.seller.id) {
-    throw new HttpException("You are not the owner of this order item", 403);
-  }
-  // Deletable statuses: not paid, not shipping, not shipped, not delivered, not completed
-  const nonDeletableStatuses = [
-    "paid",
-    "shipping",
-    "shipped",
-    "delivered",
-    "completed",
-    "cancelled",
-    "returned",
-  ];
-  if (nonDeletableStatuses.includes(orderItem.status.toLowerCase())) {
+  // Step 3: Block if item cannot be removed (fulfillment/refund status)
+  if (
+    ["shipped", "delivered", "refunded", "canceled", "cancelled"].includes(
+      item.refund_status,
+    )
+  ) {
     throw new HttpException(
-      `Order item cannot be deleted in its current status: ${orderItem.status}`,
+      "Order item cannot be removed in its current fulfillment/refund state.",
       409,
     );
   }
-  // Step 2: Hard delete
-  await MyGlobal.prisma.shopping_mall_order_items.delete({
+  // Step 4: Soft delete by setting deleted_at
+  const timestamp = toISOStringSafe(new Date());
+  await MyGlobal.prisma.shopping_mall_order_items.update({
     where: { id: props.itemId },
-  });
-  // Step 3: Audit log
-  const now = toISOStringSafe(new Date());
-  await MyGlobal.prisma.shopping_mall_audit_logs.create({
-    data: {
-      id: v4(),
-      entity_type: "order_item",
-      entity_id: props.itemId,
-      event_type: "delete",
-      actor_id: props.seller.id,
-      snapshot_id: null,
-      event_result: "success",
-      event_message: null,
-      event_time: now,
-      created_at: now,
-    },
+    data: { deleted_at: timestamp, updated_at: timestamp },
   });
 }

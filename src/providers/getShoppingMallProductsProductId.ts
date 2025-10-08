@@ -12,22 +12,23 @@ import { IShoppingMallProduct } from "@ORGANIZATION/PROJECT-api/lib/structures/I
 export async function getShoppingMallProductsProductId(props: {
   productId: string & tags.Format<"uuid">;
 }): Promise<IShoppingMallProduct> {
-  const product = await MyGlobal.prisma.shopping_mall_products.findUnique({
-    where: { id: props.productId },
+  const product = await MyGlobal.prisma.shopping_mall_products.findFirst({
+    where: {
+      id: props.productId,
+      is_active: true,
+      deleted_at: null,
+    },
   });
-  if (!product || product.deleted_at) {
-    throw new HttpException("Product not found", 404);
+  if (!product) {
+    throw new HttpException("Product not found or not available.", 404);
   }
   return {
     id: product.id,
-    shopping_mall_seller_id: product.shopping_mall_seller_id,
-    shopping_mall_channel_id: product.shopping_mall_channel_id,
-    shopping_mall_section_id: product.shopping_mall_section_id,
-    shopping_mall_category_id: product.shopping_mall_category_id,
-    code: product.code,
     name: product.name,
-    status: product.status,
-    business_status: product.business_status,
+    description: product.description,
+    is_active: product.is_active,
+    main_image_url:
+      product.main_image_url === null ? undefined : product.main_image_url,
     created_at: toISOStringSafe(product.created_at),
     updated_at: toISOStringSafe(product.updated_at),
     deleted_at: product.deleted_at

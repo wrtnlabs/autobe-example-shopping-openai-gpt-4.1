@@ -7,34 +7,41 @@ import { MyGlobal } from "../MyGlobal";
 import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-import { IShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallShipment";
-import { IPageIShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageIShoppingMallShipment";
+import { IShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallOrderShipment";
+import { IPageIShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageIShoppingMallOrderShipment";
 import { IPage } from "@ORGANIZATION/PROJECT-api/lib/structures/IPage";
 import { AdminPayload } from "../decorators/payload/AdminPayload";
 
 export async function patchShoppingMallAdminOrdersOrderIdShipments(props: {
   admin: AdminPayload;
   orderId: string & tags.Format<"uuid">;
-  body: IShoppingMallShipment.IRequest;
-}): Promise<IPageIShoppingMallShipment.ISummary> {
-  const { orderId, body } = props;
-
-  // Pagination params with defaults
-  const currentPage = body.page ?? 1;
-  const pageLimit = body.limit ?? 20;
-  const offset = (currentPage - 1) * pageLimit;
-
-  // Filtering conditions
+  body: IShoppingMallOrderShipment.IRequest;
+}): Promise<IPageIShoppingMallOrderShipment> {
+  // 1. Validate the order exists
+  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
+    where: { id: props.orderId },
+    select: { id: true },
+  });
+  if (!order) {
+    throw new HttpException("Order not found", 404);
+  }
+  // 2. Pagination and limit
+  const { body } = props;
+  const page = body.page !== undefined ? Number(body.page) : 1;
+  let rawLimit = body.limit !== undefined ? Number(body.limit) : 20;
+  const limit = rawLimit > 100 ? 100 : rawLimit;
+  const skip = (page - 1) * limit;
+  // 3. Build where clause
   const where = {
-    shopping_mall_order_id: orderId,
+    shopping_mall_order_id: props.orderId,
     deleted_at: null,
     ...(body.status !== undefined && { status: body.status }),
-    ...(body.shipment_code !== undefined && {
-      shipment_code: body.shipment_code,
-    }),
-    ...(body.shopping_mall_seller_id !== undefined && {
-      shopping_mall_seller_id: body.shopping_mall_seller_id,
-    }),
+    ...(body.carrier !== undefined && { carrier: body.carrier }),
+    ...(body.tracking_number !== undefined &&
+      body.tracking_number !== null &&
+      body.tracking_number.length > 0 && {
+        tracking_number: { contains: body.tracking_number },
+      }),
     ...(body.created_from !== undefined || body.created_to !== undefined
       ? {
           created_at: {
@@ -43,47 +50,72 @@ export async function patchShoppingMallAdminOrdersOrderIdShipments(props: {
           },
         }
       : {}),
+    ...(body.dispatched_from !== undefined || body.dispatched_to !== undefined
+      ? {
+          dispatched_at: {
+            ...(body.dispatched_from !== undefined && {
+              gte: body.dispatched_from,
+            }),
+            ...(body.dispatched_to !== undefined && {
+              lte: body.dispatched_to,
+            }),
+          },
+        }
+      : {}),
+    ...(body.delivered_from !== undefined || body.delivered_to !== undefined
+      ? {
+          delivered_at: {
+            ...(body.delivered_from !== undefined && {
+              gte: body.delivered_from,
+            }),
+            ...(body.delivered_to !== undefined && { lte: body.delivered_to }),
+          },
+        }
+      : {}),
   };
-
-  // Fetch paginated data & total count
-  const [rows, count] = await Promise.all([
-    MyGlobal.prisma.shopping_mall_shipments.findMany({
+  // 4. Sort
+  const validSortFields = ["created_at", "dispatched_at", "delivered_at"];
+  const sort_by = validSortFields.includes(body.sort_by ?? "")
+    ? (body.sort_by as "created_at" | "dispatched_at" | "delivered_at")
+    : "created_at";
+  const sort_order = body.sort_order === "asc" ? "asc" : "desc";
+  // 5. Query
+  const [rows, total] = await Promise.all([
+    MyGlobal.prisma.shopping_mall_order_shipments.findMany({
       where,
-      orderBy: { created_at: "desc" },
-      skip: offset,
-      take: pageLimit,
+      orderBy: { [sort_by]: sort_order },
+      skip,
+      take: limit,
     }),
-    MyGlobal.prisma.shopping_mall_shipments.count({ where }),
+    MyGlobal.prisma.shopping_mall_order_shipments.count({ where }),
   ]);
-
-  // Map to summary DTO
+  // 6. Map to DTO
   const data = rows.map((row) => ({
     id: row.id,
-    order_id: row.shopping_mall_order_id,
-    seller_id: row.shopping_mall_seller_id,
-    shipment_code: row.shipment_code,
-    external_tracking_number: row.external_tracking_number ?? undefined,
+    shopping_mall_order_id: row.shopping_mall_order_id,
+    shipment_number: row.shipment_number,
+    carrier: row.carrier,
+    tracking_number: row.tracking_number ?? undefined,
     status: row.status,
-    carrier: row.carrier ?? undefined,
-    requested_at: row.requested_at
-      ? toISOStringSafe(row.requested_at)
+    dispatched_at: row.dispatched_at
+      ? toISOStringSafe(row.dispatched_at)
       : undefined,
-    shipped_at: row.shipped_at ? toISOStringSafe(row.shipped_at) : undefined,
     delivered_at: row.delivered_at
       ? toISOStringSafe(row.delivered_at)
       : undefined,
+    remark: row.remark ?? undefined,
     created_at: toISOStringSafe(row.created_at),
     updated_at: toISOStringSafe(row.updated_at),
     deleted_at: row.deleted_at ? toISOStringSafe(row.deleted_at) : undefined,
   }));
-
-  // Pagination info
-  const pagination = {
-    current: currentPage,
-    limit: pageLimit,
-    records: count,
-    pages: Math.ceil(count / pageLimit),
+  // 7. Pagination result
+  return {
+    pagination: {
+      current: Number(page),
+      limit: Number(limit),
+      records: total,
+      pages: Math.ceil(total / limit),
+    },
+    data,
   };
-
-  return { pagination, data };
 }

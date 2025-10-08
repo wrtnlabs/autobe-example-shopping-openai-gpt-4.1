@@ -13,53 +13,50 @@ export async function deleteShoppingMallAdminOrdersOrderId(props: {
   admin: AdminPayload;
   orderId: string & tags.Format<"uuid">;
 }): Promise<void> {
-  // Step 1: Fetch order and ensure existence and not already deleted
-  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
-    where: { id: props.orderId },
-  });
-  if (!order || order.deleted_at !== null) {
-    throw new HttpException("Order not found or already deleted", 404);
-  }
-  // Step 2: Enforce business rules on order status
-  const forbiddenStatuses = [
-    "completed",
-    "delivered",
-    "cancelled",
-    "in_fulfillment",
-    "shipping",
-  ];
-  if (forbiddenStatuses.includes(order.status)) {
-    throw new HttpException(
-      "Order cannot be deleted in its current status",
-      400,
-    );
-  }
-  // Step 3: Create a snapshot record for audit/evidence
-  await MyGlobal.prisma.shopping_mall_order_snapshots.create({
-    data: {
-      id: v4(),
-      shopping_mall_order_id: order.id,
-      snapshot_data: JSON.stringify(order),
-      created_at: toISOStringSafe(new Date()),
+  const { admin, orderId } = props;
+
+  // 1. Find order by ID and ensure not already deleted
+  const order = await MyGlobal.prisma.shopping_mall_orders.findFirst({
+    where: {
+      id: orderId,
+      deleted_at: null,
+    },
+    select: {
+      id: true,
+      status: true,
+      deleted_at: true,
     },
   });
-  // Step 4: Set deleted_at field (soft delete)
-  const now = toISOStringSafe(new Date());
+
+  if (!order) {
+    throw new HttpException("Order not found, or already deleted.", 404);
+  }
+
+  // 2. Check order status is eligible for deletion
+  const allowedStatuses = ["completed", "cancelled", "refunded"];
+  if (!allowedStatuses.includes(order.status)) {
+    throw new HttpException("Order status does not allow deletion.", 409);
+  }
+
+  // 3. Soft delete order
+  const deletedAt: string & tags.Format<"date-time"> = toISOStringSafe(
+    new Date(),
+  );
   await MyGlobal.prisma.shopping_mall_orders.update({
-    where: { id: order.id },
-    data: { deleted_at: now },
+    where: { id: orderId },
+    data: { deleted_at: deletedAt },
   });
-  // Step 5: Audit log for compliance
-  await MyGlobal.prisma.shopping_mall_audit_logs.create({
+
+  // 4. Create admin action log
+  await MyGlobal.prisma.shopping_mall_admin_action_logs.create({
     data: {
       id: v4(),
-      entity_type: "order",
-      entity_id: order.id,
-      event_type: "soft_delete",
-      actor_id: props.admin.id,
-      event_result: "success",
-      event_time: now,
-      created_at: now,
+      shopping_mall_admin_id: admin.id,
+      affected_order_id: orderId,
+      action_type: "soft_delete",
+      domain: "order",
+      action_reason: "Order soft deleted via admin operation.",
+      created_at: deletedAt,
     },
   });
 }

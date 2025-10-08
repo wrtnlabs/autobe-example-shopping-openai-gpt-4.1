@@ -4,6 +4,9 @@ import { Singleton } from "tstl";
 
 import { customerAuthorize } from "../providers/authorize/customerAuthorize";
 
+/**
+ * Controller 메소드 파라미터에 Customer 인증정보를 주입합니다
+ */
 export const CustomerAuth =
   (): ParameterDecorator =>
   (

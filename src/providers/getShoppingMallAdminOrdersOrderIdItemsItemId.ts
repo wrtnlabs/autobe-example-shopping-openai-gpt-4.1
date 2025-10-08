@@ -15,43 +15,25 @@ export async function getShoppingMallAdminOrdersOrderIdItemsItemId(props: {
   orderId: string & tags.Format<"uuid">;
   itemId: string & tags.Format<"uuid">;
 }): Promise<IShoppingMallOrderItem> {
-  const orderItem = await MyGlobal.prisma.shopping_mall_order_items.findFirst({
-    where: {
-      id: props.itemId,
-      shopping_mall_order_id: props.orderId,
-      deleted_at: null,
-    },
+  const item = await MyGlobal.prisma.shopping_mall_order_items.findUnique({
+    where: { id: props.itemId },
   });
-  if (!orderItem) {
+  if (!item || item.shopping_mall_order_id !== props.orderId) {
     throw new HttpException("Order item not found", 404);
   }
   return {
-    id: orderItem.id,
-    shopping_mall_order_id: orderItem.shopping_mall_order_id,
-    shopping_mall_product_id: orderItem.shopping_mall_product_id,
-    // optional variant reference
-    ...(orderItem.shopping_mall_product_variant_id !== undefined &&
-    orderItem.shopping_mall_product_variant_id !== null
-      ? {
-          shopping_mall_product_variant_id:
-            orderItem.shopping_mall_product_variant_id,
-        }
-      : {}),
-    shopping_mall_seller_id: orderItem.shopping_mall_seller_id,
-    quantity: orderItem.quantity,
-    unit_price: orderItem.unit_price,
-    final_price: orderItem.final_price,
-    // optional discount snapshot
-    ...(orderItem.discount_snapshot !== undefined &&
-    orderItem.discount_snapshot !== null
-      ? { discount_snapshot: orderItem.discount_snapshot }
-      : {}),
-    status: orderItem.status,
-    created_at: toISOStringSafe(orderItem.created_at),
-    updated_at: toISOStringSafe(orderItem.updated_at),
-    // optional deleted_at for soft deletes
-    ...(orderItem.deleted_at !== undefined && orderItem.deleted_at !== null
-      ? { deleted_at: toISOStringSafe(orderItem.deleted_at) }
-      : {}),
+    id: item.id,
+    shopping_mall_order_id: item.shopping_mall_order_id,
+    shopping_mall_product_sku_id: item.shopping_mall_product_sku_id,
+    item_name: item.item_name,
+    sku_code: item.sku_code,
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    currency: item.currency,
+    item_total: item.item_total,
+    refund_status: item.refund_status,
+    created_at: toISOStringSafe(item.created_at),
+    updated_at: toISOStringSafe(item.updated_at),
+    deleted_at: item.deleted_at ? toISOStringSafe(item.deleted_at) : undefined,
   };
 }

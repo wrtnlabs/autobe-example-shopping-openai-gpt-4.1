@@ -8,110 +8,116 @@ import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
 import { IShoppingMallCustomer } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallCustomer";
+import { IShoppingMallCustomerAddress } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallCustomerAddress";
 import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IAuthorizationToken";
 
 export async function postAuthCustomerJoin(props: {
   body: IShoppingMallCustomer.IJoin;
 }): Promise<IShoppingMallCustomer.IAuthorized> {
-  const now = toISOStringSafe(new Date());
-  const customerId = v4();
-  const { shopping_mall_channel_id, email, password, name, phone } = props.body;
+  const { body } = props;
 
-  // 1. Check for duplicate email within the channel
-  const exists = await MyGlobal.prisma.shopping_mall_customers.findFirst({
-    where: { shopping_mall_channel_id, email },
-    select: { id: true },
+  // Check for duplicate email (ignore soft-deleted accounts)
+  const existing = await MyGlobal.prisma.shopping_mall_customers.findFirst({
+    where: { email: body.email, deleted_at: null },
   });
-  if (exists) {
-    throw new HttpException(
-      "Duplicate registration: email is already registered in this channel",
-      409,
-    );
+  if (existing) {
+    throw new HttpException("Email already registered.", 409);
   }
 
-  // 2. Hash password if provided, null for OAuth or no password
-  let password_hash: string | null = null;
-  if (typeof password === "string" && password.length > 0) {
-    password_hash = await PasswordUtil.hash(password);
-  }
+  // Hash password
+  const password_hash = await PasswordUtil.hash(body.password);
 
-  // 3. Insert new customer
-  const created = await MyGlobal.prisma.shopping_mall_customers.create({
+  // Prepare values
+  const now = toISOStringSafe(new Date());
+  const customer_id = v4();
+
+  // Create customer
+  const customer = await MyGlobal.prisma.shopping_mall_customers.create({
     data: {
-      id: customerId,
-      shopping_mall_channel_id,
-      email,
+      id: customer_id,
+      email: body.email,
       password_hash,
-      // handle phone: can be undefined (missing), null, or string. Don't include if undefined
-      ...(phone !== undefined ? { phone } : {}),
-      name,
-      status: "active",
-      kyc_status: "pending",
+      full_name: body.full_name,
+      phone: body.phone,
+      status: "pending",
+      email_verified: false,
       created_at: now,
       updated_at: now,
       deleted_at: null,
     },
-    select: {
-      id: true,
-      shopping_mall_channel_id: true,
-      email: true,
-      phone: true,
-      name: true,
-      status: true,
-      kyc_status: true,
-      created_at: true,
-      updated_at: true,
-      deleted_at: true,
+  });
+
+  // Create address
+  await MyGlobal.prisma.shopping_mall_customer_addresses.create({
+    data: {
+      id: v4(),
+      customer_id,
+      recipient_name: body.address.recipient_name,
+      phone: body.address.phone,
+      region: body.address.region,
+      postal_code: body.address.postal_code,
+      address_line1: body.address.address_line1,
+      address_line2: body.address.address_line2 ?? null,
+      is_default: body.address.is_default,
+      created_at: now,
+      updated_at: now,
+      deleted_at: null,
     },
   });
 
-  // 4. JWT token generation (access: 1h, refresh: 7d)
-  const accessExp = 60 * 60; // 1h seconds
-  const refreshExp = 60 * 60 * 24 * 7; // 7d seconds
-  const issued = Date.now();
-  const expired_at = toISOStringSafe(new Date(issued + accessExp * 1000));
-  const refreshable_until = toISOStringSafe(
-    new Date(issued + refreshExp * 1000),
-  );
-  const payload = { id: created.id, type: "customer" };
-  const access = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: accessExp,
+  // Issue JWT tokens (access & refresh)
+  const payload = { id: customer.id, type: "customer" };
+  const accessToken = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: "1h",
     issuer: "autobe",
   });
-  const refresh = jwt.sign(
-    { ...payload, tokenType: "refresh" },
-    MyGlobal.env.JWT_SECRET_KEY,
-    {
-      expiresIn: refreshExp,
-      issuer: "autobe",
-    },
-  );
+  const refreshToken = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
+    expiresIn: "7d",
+    issuer: "autobe",
+  });
+
+  // Compute expiry from tokens
+  const decodeAccess = jwt.decode(accessToken);
+  const decodeRefresh = jwt.decode(refreshToken);
+  let expired_at = now;
+  let refreshable_until = now;
+  if (
+    decodeAccess &&
+    typeof decodeAccess === "object" &&
+    "exp" in decodeAccess &&
+    decodeAccess.exp
+  ) {
+    expired_at = toISOStringSafe(new Date(Number(decodeAccess.exp) * 1000));
+  }
+  if (
+    decodeRefresh &&
+    typeof decodeRefresh === "object" &&
+    "exp" in decodeRefresh &&
+    decodeRefresh.exp
+  ) {
+    refreshable_until = toISOStringSafe(
+      new Date(Number(decodeRefresh.exp) * 1000),
+    );
+  }
 
   return {
-    id: created.id,
-    shopping_mall_channel_id: created.shopping_mall_channel_id,
-    email: created.email,
-    // If phone is explicitly null, keep null. If undefined, omit. If value, return as is
-    ...(created.phone !== undefined ? { phone: created.phone } : {}),
-    name: created.name,
-    status: created.status,
-    kyc_status: created.kyc_status,
-    created_at: toISOStringSafe(created.created_at),
-    updated_at: toISOStringSafe(created.updated_at),
-    // deleted_at is nullable (DateTime? in schema, optional in DTO): null if null, undefined if omitted
-    ...(created.deleted_at !== undefined
-      ? {
-          deleted_at:
-            created.deleted_at === null
-              ? null
-              : toISOStringSafe(created.deleted_at),
-        }
-      : {}),
+    id: customer.id,
+    email: customer.email,
+    full_name: customer.full_name,
+    phone: customer.phone,
+    status: customer.status,
+    email_verified: customer.email_verified,
+    created_at: toISOStringSafe(customer.created_at),
+    updated_at: toISOStringSafe(customer.updated_at),
+    deleted_at:
+      customer.deleted_at === null
+        ? null
+        : toISOStringSafe(customer.deleted_at),
     token: {
-      access,
-      refresh,
-      expired_at,
-      refreshable_until,
+      access: accessToken,
+      refresh: refreshToken,
+      expired_at: expired_at,
+      refreshable_until: refreshable_until,
     },
   };
 }

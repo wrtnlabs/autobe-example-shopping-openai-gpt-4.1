@@ -5,8 +5,8 @@ import { Singleton } from "tstl";
 import { sellerAuthorize } from "../providers/authorize/sellerAuthorize";
 
 /**
- * Decorator to enable seller authorization on controller methods.
- * Injects SellerPayload when called in controller method parameter.
+ * Decorator to inject the authenticated seller payload into controller methods.
+ * Adds bearer token security scheme for Swagger UI.
  */
 export const SellerAuth =
   (): ParameterDecorator =>

@@ -1,1 +1,1 @@
-export * as inquiries from "./inquiries/index";
+export * as reviews from "./reviews/index";

@@ -1,0 +1,262 @@
+/// Main entity for product reviews. Each review is authored by a customer
+/// after purchasing a product, linked to both the product and order for
+/// verification (only 1 review per (customer, product, order)). Contains
+/// star rating (1-5), review body, status for moderation (pending, approved,
+/// rejected, hidden), and supports soft deletion. Related entities include
+/// review images, review replies (seller/admin), and flags for abuses.
+/// Moderation audit is handled via status and timestamps. Used for
+/// aggregation in {@link shopping_mall_product_rating_aggregates}.
+///
+/// @namespace Reviews
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_reviews {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged product's {@link shopping_mall_products.id}. Required for
+  /// aggregation and display.
+  shopping_mall_product_id String
+  
+  /// Order verifying purchase {@link shopping_mall_orders.id}. Needed to
+  /// enforce 1 review per (customer, product, order).
+  shopping_mall_order_id String
+  
+  /// Review author's {@link shopping_mall_customers.id}. For verification,
+  /// reward, and audit.
+  shopping_mall_customer_id String
+  
+  /// Star rating, integer 1-5.
+  rating Int
+  
+  /// Main review body provided by the author. Text, 10-2000 characters.
+  body String
+  
+  /// Review moderation status: 'pending', 'approved', 'rejected', or 'hidden'.
+  /// Decides visibility and eligibility for aggregation/reward.
+  status String
+  
+  /// Optional public moderation/admin/seller comment on the review. Used for
+  /// rejected/hidden explanations. Optional.
+  comment String?
+  
+  /// Review creation timestamp (for audit and timeline sorting).
+  created_at DateTime
+  
+  /// Last update timestamp. Audit and concurrency control.
+  updated_at DateTime
+  
+  /// Soft delete flag for review retraction or admin takedown. Allows recovery
+  /// for audits.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_products @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_review_images shopping_mall_review_images[]
+  shopping_mall_review_flags shopping_mall_review_flags[]
+  shopping_mall_review_replies shopping_mall_review_replies[]
+  shopping_mall_admin_action_logs shopping_mall_admin_action_logs[]
+  shopping_mall_moderation_event_logs shopping_mall_moderation_event_logs[]
+  
+  @@index([shopping_mall_order_id])
+  
+  @@unique([shopping_mall_product_id, shopping_mall_customer_id, shopping_mall_order_id], map: "shopping_mall_reviews_shopping_mall_product_id_shoppin_0e4c5633")
+  @@index([shopping_mall_product_id, status])
+  @@index([shopping_mall_customer_id, status])
+}
+
+/// Images attached to a product review. Allows multiple (up to 5) image
+/// files per review, each referencing uri. Managed as a subsidiary entity,
+/// only via review CRUD. Used for moderation of review content. Links only
+/// to reviews.
+///
+/// @namespace Reviews
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_review_images {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent review's {@link shopping_mall_reviews.id}.
+  shopping_mall_review_id String
+  
+  /// URI for the attached image file. Required.
+  image_uri String
+  
+  /// Image attachment creation time (for audit).
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  review shopping_mall_reviews @relation(fields: [shopping_mall_review_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_review_id])
+}
+
+/// Flags for abuse/reported content on reviews. Created by users, sellers,
+/// or admins to signal moderation. Each flag links to one review and,
+/// optionally, to the actor (user, seller, admin). Includes status (open,
+/// resolved, rejected), reason, internal note/comment, and audit timestamps
+/// for moderation flow. Managed by admins for policy and moderation process
+/// tracking.
+///
+/// @namespace Reviews
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_review_flags {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Targeted review's {@link shopping_mall_reviews.id}.
+  shopping_mall_review_id String
+  
+  /// Flag submitted by this customer (optional if submitted by seller/admin).
+  shopping_mall_customer_id String?
+  
+  /// Flag submitted by seller (optional).
+  shopping_mall_seller_id String?
+  
+  /// Flag submitted by admin (optional, e.g. moderation or policy violation).
+  shopping_mall_admin_id String?
+  
+  /// Reason code or short description why review is flagged for moderation
+  /// (e.g., 'abuse', 'spam', 'policy_violation').
+  reason String
+  
+  /// Optional internal note for admin handling, moderation, or escalation.
+  note String?
+  
+  /// Flag workflow state: 'open', 'resolved', or 'rejected'. Determines
+  /// whether moderation is still pending or closed.
+  status String
+  
+  /// Flag creation timestamp (for audit and timeline).
+  created_at DateTime
+  
+  /// Last status/note update timestamp. Required for process audit.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  review shopping_mall_reviews @relation(fields: [shopping_mall_review_id], references: [id], onDelete: Cascade)
+  customer shopping_mall_customers? @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_sellers? @relation(fields: [shopping_mall_seller_id], references: [id], onDelete: Cascade)
+  admin shopping_mall_admins? @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_customer_id])
+  @@index([shopping_mall_seller_id])
+  @@index([shopping_mall_admin_id])
+  
+  @@index([shopping_mall_review_id, status])
+}
+
+/// Seller or admin's public reply to a product review. Linked to one review
+/// and the actor (seller or admin). Only one reply per review per responder
+/// (enforced by unique index). Includes reply body, visibility status, soft
+/// delete (deleted_at) and audit timestamps. Managed through moderation
+/// flows and displayed with the review to the customer.
+///
+/// @namespace Reviews
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_review_replies {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent review's {@link shopping_mall_reviews.id}.
+  shopping_mall_review_id String
+  
+  /// Reply author, seller (optional if admin replies).
+  shopping_mall_seller_id String?
+  
+  /// Reply author, admin (optional if seller replies).
+  shopping_mall_admin_id String?
+  
+  /// Reply text. Displayed publicly with the review for transparency.
+  body String
+  
+  /// Reply visibility status: 'public', 'hidden'. Decides if reply is visible
+  /// to all or only in moderation workflows.
+  status String
+  
+  /// Reply creation timestamp.
+  created_at DateTime
+  
+  /// Last reply update timestamp.
+  updated_at DateTime
+  
+  /// Soft delete for retracted/taken down replies. Allows audit, hidden from
+  /// user but recoverable.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  review shopping_mall_reviews @relation(fields: [shopping_mall_review_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_sellers? @relation(fields: [shopping_mall_seller_id], references: [id], onDelete: Cascade)
+  admin shopping_mall_admins? @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_seller_id])
+  @@index([shopping_mall_admin_id])
+  
+  @@unique([shopping_mall_review_id, shopping_mall_seller_id], map: "shopping_mall_review_replies_shopping_mall_review_id_s_c9599ac9")
+  @@unique([shopping_mall_review_id, shopping_mall_admin_id], map: "shopping_mall_review_replies_shopping_mall_review_id_s_1cc04f67")
+  @@index([shopping_mall_review_id])
+}
+
+/// Materialized view for fast product rating display and search. Stores
+/// denormalized product-level aggregates (count, sum, average rating,
+/// updated timestamp). Refreshed after review changes for high-performance
+/// product listing/sorting. One per product. Not user-editable. Only
+/// denormalized data present; business logic recalculates this table after
+/// every review change. Hidden from most documentation and APIs.
+///
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_product_rating_aggregates {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Target product's {@link shopping_mall_products.id}. Unique (one rating
+  /// aggregate per product).
+  shopping_mall_product_id String
+  
+  /// Total number of published reviews for this product. Updates on approval
+  /// or deletion.
+  review_count Int
+  
+  /// Sum of all published review star ratings for average calculation.
+  star_sum Int
+  
+  /// Cached average rating (star_sum / review_count). Recalculated by review
+  /// triggers. Used for sorting/listing optimizations.
+  star_avg Float
+  
+  /// Timestamp when aggregate was last recalculated (for cache invalidation
+  /// and audit).
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_products @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  
+  @@unique([shopping_mall_product_id], map: "shopping_mall_product_rating_aggregates_shopping_mall__1bac2e28")
+}

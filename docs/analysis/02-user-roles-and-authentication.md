@@ -1,121 +1,123 @@
-# User Roles and Authentication Requirements
+# User Roles and Authentication Requirement Analysis
 
-## 1. User Role Taxonomy
+## 1. Role Overview and Definitions
 
-The system distinctly identifies three user roles, with clear separation of responsibilities, escalation paths, and access:
+| Role    | Description                                                                                                                                                    |
+|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Customer| A regular buyer who can register, log in, browse products, add items to cart and wishlist, place orders, manage orders (track, cancel, request refund), write product reviews, and manage their own addresses. |
+| Seller  | A vendor who can register for a seller account, list and manage products (including variants and inventory), process orders, update shipping/tracking status, and respond to customer reviews or questions about their own products. |
+| Admin   | A system administrator with full access to manage all users, products, orders, categories, and oversee platform operations (including resolving disputes, handling refunds, and managing seller status). |
 
-### 1.1 Customer
-- Can browse products, place orders, use cart and checkout, manage personal addresses, view purchase history.
-- Can use discount coupons, deposits, and mileage, accrue or spend them, and review account balances.
-- May favorite products/inquiries/addresses, post product inquiries or leave reviews, and receive recommendations.
-- Can apply for seller permission or escalate to higher privileges, subject to approval.
+### Role Hierarchy
+- **Admin** has all permissions of Seller and Customer, plus platform-level controls.
+- **Seller** can manage their own products/orders; cannot access admin settings or other sellers' products/orders.
+- **Customer** interacts through purchase and review processes only; cannot access seller/admin features.
 
-### 1.2 Seller
-- Inherits all customer permissions.
-- Can register and manage products (bundles, variants, content, pricing, inventory).
-- Can view and manage orders for their listed products, process fulfillment, handle returns/exchanges, and track order states.
-- Can answer inquiries for their products, interact with customers via comments, and moderate own product-related boards.
-- Can issue and manage discount coupons for their products; access analytics on sales and coupon use.
+## 2. Authentication Flows
 
-### 1.3 Admin
-- Global platform authority: can manage all users, sellers, and products.
-- Can audit, update, or deactivate any account or entity.
-- Configures platform-wide settings: channel/section structure, business rules, compliance and moderation policies.
-- Access to all analytics, audit logs, and evidence retention features.
-- Can manage all coupon, deposit, mileage, and promotional campaigns for the platform.
+### Core Authentication Features
+- Registration (customer and seller: email + password)
+- Login (email + password)
+- Address management (customer)
+- Email verification
+- Password reset (forgot/change password)
+- Logout
+- Session invalidation
 
-### 1.4 External & Guest Access
-- Users can browse product listings and access legal/compliance documents as guests.
-- Actions requiring stateful access (cart persistence, orders, coupons, personalization) require authentication.
-- Supports external/OAuth login/registration, with mapping to customer role and optional future SSO upgrades.
+### EARS Requirements (Authentication Flows)
+- WHEN a user submits a registration form, THE system SHALL validate all required fields (email, password, role), create the user record, and send out an email verification.
+- IF a registration uses an email already present in the system, THEN THE system SHALL reject the request with a clear error message.
+- WHEN a user verifies their email, THE system SHALL activate the account and permit login.
+- WHEN invalid or expired verification tokens are used, THE system SHALL reject them with a specific error message and guide the user to request a new one.
+- WHEN a user attempts to log in, THE system SHALL authenticate credentials against stored data and only allow verified users.
+- IF incorrect credentials are provided, THEN THE system SHALL reject login with error code and short throttling delay after repeated failures.
+- WHEN a user requests a password reset, THE system SHALL send a time-limited reset link to the registered email.
+- WHEN a valid password reset is performed, THE system SHALL update the stored hash and revoke all active sessions.
+- WHEN a user logs out, THE system SHALL immediately terminate the session token.
+- WHILE a session is active, THE system SHALL allow access based on role permissions and token validity.
+- WHEN a customer manages their address book, THE system SHALL permit add, edit, delete, and set default for multiple addresses.
 
-## 2. Authentication and Authorization Flow
+### Authentication Flow Diagram
+```mermaid
+graph LR
+  subgraph "Registration and Activation"
+    A["User Submits Registration (Email, Password, Role)"] --> B["Validate Uniqueness and Format"]
+    B -->|"Valid"| C["Create User, Send Verification Email"]
+    B -->|"Duplicate or Invalid"| D["Show Error"]
+    C --> E["User Clicks Verification Link"]
+    E --> F["Activate Account"]
+    D --> G["User Modifies Input"]
+  end
+  subgraph "Login and Session"
+    H["User Enters Email/Password"] --> I["Validate Credentials"]
+    I -->|"Valid"| J["Generate JWT, Create Session"]
+    I -->|"Invalid"| K["Show Login Error and Option to Reset Password"]
+    J --> L["Access Permitted by Role"]
+    K --> M["Throttle Repeated Failures"]
+  end
+  subgraph "Password Management"
+    N["User Requests Password Reset"] --> O["Send Reset Link"]
+    O --> P["User Submits New Password"]
+    P --> Q["Update Password, Invalidate Sessions"]
+  end
+```
 
-### 2.1 Registration and Identity Verification
-- THE system SHALL allow new customers to register with email (mandatory, supports multiple emails per account), password, and verified mobile/contact identity.
-- WHEN a user requests registration, THE system SHALL verify provided identity information per locale/legal requirements (mobile/real-name, encrypted storage, international flows where applicable).
-- THE system SHALL support external authentication providers (Google, Apple, Kakao, Naver, etc.), permitting account creation upon successful third-party identity validation.
+## 3. Role-based Permissions Matrix
 
-### 2.2 Login, Session, and Multi-Device Tokens
-- THE system SHALL support standard email/password login with secure password hashes (never in plain text).
-- THE system SHALL support external OAuth login, linking external IDs to an internal unified identity, maintaining audit history of linked/unlinked events.
-- WHEN login succeeds, THE system SHALL issue a new JWT access token (lifetime: 15-30 minutes) and a JWT refresh token (lifetime: 7-30 days).
-- THE system SHALL enforce single-session invalidation on logout or credential reset (revoke all device tokens on password change or explicit session revocation).
-- WHEN multiple devices are used, THE system SHALL allow revocation of other device sessions individually or globally.
+| Action                                              | Customer | Seller | Admin |
+|-----------------------------------------------------|----------|--------|-------|
+| Register an account                                 | ✅       | ✅     | ✅    |
+| Login/Logout                                        | ✅       | ✅     | ✅    |
+| Manage profile information                          | ✅       | ✅     | ✅    |
+| Manage addresses                                    | ✅       |        |       |
+| Browse/search products                              | ✅       | ✅     | ✅    |
+| Add to cart, wishlist                              | ✅       |        |       |
+| Place order, process payment                        | ✅       |        |       |
+| Track, cancel, or request refund on own orders      | ✅       |        |       |
+| Write product reviews & ratings                     | ✅       |        |       |
+| Manage own product listings                         |          | ✅     | ✅    |
+| Manage own inventory and SKUs                       |          | ✅     | ✅    |
+| Process received orders, update shipping status      |          | ✅     | ✅    |
+| Respond to reviews about own products               |          | ✅     | ✅    |
+| View and manage all users, products, orders, etc.   |          |        | ✅    |
+| Moderate reviews, handle disputes & refunds         |          |        | ✅    |
+| Manage categories, system settings                  |          |        | ✅    |
 
-### 2.3 Authorization and Role Escalation
-- WHEN a customer applies for seller/administrator access, THE system SHALL enforce an approval workflow, including verification steps (identity, business validation, KYC/AML for sellers, stricter checks for admins).
-- THE system SHALL block all seller/admin actions unless explicit approval was granted and recorded.
-- WHEN role escalation is denied, THE system SHALL record the decision and notify the applicant with rejection reason.
+### EARS Requirements (Permissions)
+- WHERE a user holds role customer, THE system SHALL restrict access to only customer functions (e.g., products catalog, cart, reviews, orders, address management).
+- WHERE a user holds role seller, THE system SHALL grant access to seller dashboard for managing their own products, inventory, and orders only.
+- WHERE a user holds role admin, THE system SHALL grant full access to all system management and moderation functions.
+- IF a user tries to access a restricted area outside their permission, THEN THE system SHALL deny the request with a clear error status and log the event.
 
-### 2.4 Password and Account Security Management
-- THE system SHALL support secure password reset workflows, requiring identity verification.
-- IF login or password reset attempts exceed system threshold, THEN THE system SHALL temporarily lock the account and provide a clear recovery flow.
-- THE system SHALL require re-authentication before performing critical security-sensitive actions (email/phone change, role escalation).
+## 4. JWT and Token Management
 
-### 2.5 External Identity Verification
-- WHERE required by law or by platform policy, THE system SHALL capture and retain KYC/AML verification status, and escalate to admins upon suspicious activity.
+### Token Lifecycle and Security
+- THE system SHALL use JWT (JSON Web Token) to represent user sessions and authorization state for all authenticated requests.
+- THE system SHALL issue access tokens valid for 15-30 minutes and refresh tokens valid for 7-30 days.
+- THE JWT payload SHALL include userId, role, permissions array, and issued/expiry times.
+- THE JWT secret key SHALL be securely managed and rotated as required by business policy.
+- WHEN a user logs out, THE system SHALL blacklist the corresponding token until expiration.
+- IF a token is expired or tampered with, THEN THE system SHALL reject it and require re-authentication.
+- THE system SHALL allow tokens to be stored via secure httpOnly cookie or localStorage, as chosen by the business policy.
 
-## 3. Role-Based Access and Actions
+### Token Flow Diagram
+```mermaid
+graph LR
+  A["User Authenticated (Login/Register)"] --> B["JWT Issued: Payload(userId, role, permissions, exp)"]
+  B --> C["Access Token (Short-lived)"]
+  B --> D["Refresh Token (Long-lived)"]
+  C --> E["Used in Authorization Header for API Requests"]
+  D --> F["Used to Get New Access Token When Expired"]
+  E --> G["Validate Token on Each Request"]
+  F --> H["Validate and Issue New Tokens or Invalidate if Revoked"]
+```
 
-### 3.1 Action Permissions
-- THE customer SHALL access public product listings, search, legal/compliance resources, and personalized feeds.
-- THE customer SHALL manage cart, orders, address book, and favored items.
-- THE seller SHALL register products, manage inventory/pricing/content, view/manage order flows for their products, process after-sales actions, answer product inquiries, and issue coupons (restricted to own products).
-- THE admin SHALL perform actions on any user, seller, product, coupon, section/category/channel, order, or campaign.
-- THE admin SHALL enforce moderation, configuration, audit, and compliance operations platform-wide.
-
-### 3.2 Approval, Moderation, and Escalation
-- WHEN a customer applies to become seller/admin, THE system SHALL require admin approval, KYC/business proof, and perform final role assignment only upon explicit sign-off.
-- WHEN abusive, fraudulent, or suspicious behavior is detected, THE system SHALL enable admins to restrict, lock, or demote accounts, preserving full audit trails.
-
-## 4. Permission Matrix
-
-| Business Function                    | Customer | Seller | Admin |
-|--------------------------------------|----------|--------|-------|
-| Browse/Search Products               | ✅       | ✅     | ✅    |
-| Place Order                         | ✅       | ✅     | ✅    |
-| Manage Cart/Addresses/Favorites      | ✅       | ✅     | ✅    |
-| Register/Manage Products             | ❌       | ✅     | ✅    |
-| Manage Their Orders                  | ✅       | ✅     | ✅    |
-| Manage All Orders                    | ❌       | ❌     | ✅    |
-| Issue/Manage Coupons                 | ❌       | ✅     | ✅    |
-| Access Analytics for Own Sales       | ❌       | ✅     | ✅    |
-| Access Platform-wide Analytics       | ❌       | ❌     | ✅    |
-| Answer Product Inquiries             | ❌       | ✅     | ✅    |
-| Moderate All Posts/Reviews           | ❌       | ❌     | ✅    |
-| Configure Channels/Sections/Categories| ❌      | ❌     | ✅    |
-| User/Seller/Admin Lifecycle Management| ❌      | ❌     | ✅    |
-| Full Audit/Compliance                | ❌       | ❌     | ✅    |
-| Account Security and Lock            | 🟡       | 🟡     | ✅    |
-
-*Legend: ✅ Allowed | ❌ Not Allowed | 🟡 Self only*
-
-## 5. Token & Session Management
-
-### 5.1 JWT Structure & Expiry
-- JWT access tokens SHALL include userId, current role(s), permission array, and session/device ID. Tokens expire in 15-30 minutes.
-- Refresh tokens SHALL be issued per device and expire in 7-30 days.
-- THE system SHALL use server-held secret key for JWT signing. Secret rotation policies SHALL be in place.
-- JWT payload SHALL not contain passwords or sensitive identification like passport/social security numbers.
-
-### 5.2 Token and Session Lifecycle
-- WHEN a session expires or is revoked, THE system SHALL enforce re-authentication.
-- THE system SHALL allow listing all active sessions/devices and enable users to revoke those independently.
-- IF suspicious device activity is detected, THEN THE system SHALL prompt the user for re-verification and optionally lock the session.
-- THE system SHALL retain session and device login metadata (IP, device type, time) for security monitoring.
-
-## 6. Error Handling & Security
-
-### 6.1 Unauthorized and Permission Errors
-- IF a user attempts to access a feature/functionality without permission, THEN THE system SHALL return HTTP 401/403 with a clear, actionable error message in the API response.
-- IF a user repeatedly fails authentication or triggers suspicious activity, THEN THE system SHALL add CAPTCHA, depth challenge, or lockout as per security policy.
-
-### 6.2 Account Lock, Recovery, and Reporting
-- WHEN an account is locked (due to failed authentication, security events, or admin intervention), THE system SHALL provide secure workflows to recover access (identity verification, admin approval, audit logs).
-- THE system SHALL notify users by email/SMS/push on account-related security incidents (new device login, lockout, password change, privilege escalation).
-- THE system SHALL log all authentication failures, escalations, and recoveries for compliance audit.
+### EARS Requirements (Token/Session Management)
+- WHEN a user logs in, THE system SHALL issue a new pair of access and refresh tokens, each with defined lifetimes.
+- WHEN a token is used for API requests, THE system SHALL validate JWT authenticity, expiration, and permissions before granting access.
+- IF a token is expired, invalid, or blacklisted, THEN THE system SHALL deny access and return error code with guidance for re-authentication.
+- WHEN a refresh token is used, THE system SHALL verify its validity before issuing new session tokens.
 
 ---
 
-This document provides comprehensive business requirements for user roles and authentication in the AI-powered shopping mall backend. All technical solutioning, API specification, and platform-specific implementation decisions (algorithm, framework, cloud provider, schema) are at the discretion of the development team. All requirements described herein use EARS format where applicable and serve as enforceable rules for business logic and audit compliance across the platform.
+This requirements document provides all business-driven requirements for identity and permission management in the shoppingMall system. All technical implementation decisions, such as library selection and specific JWT management strategies, are at the discretion of the backend development team.

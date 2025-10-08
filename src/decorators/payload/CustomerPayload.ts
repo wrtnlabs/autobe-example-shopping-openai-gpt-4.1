@@ -1,9 +1,10 @@
 import { tags } from "typia";
 
+/** Customer 역할 JWT Payload */
 export interface CustomerPayload {
-  /** 고객 식별자(UUID) - shopping_mall_customers 테이블의 PK */
+  /** Top-level customer ID (shopping_mall_customers.id) */
   id: string & tags.Format<"uuid">;
 
-  /** 구분자 */
+  /** 역할 구분자 (discriminator) */
   type: "customer";
 }

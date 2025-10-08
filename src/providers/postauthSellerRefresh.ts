@@ -13,95 +13,96 @@ import { IAuthorizationToken } from "@ORGANIZATION/PROJECT-api/lib/structures/IA
 export async function postAuthSellerRefresh(props: {
   body: IShoppingMallSeller.IRefresh;
 }): Promise<IShoppingMallSeller.IAuthorized> {
-  const { body } = props;
+  const { refresh_token } = props.body;
 
-  // 1. Decode and verify refresh token
-  let decoded: any;
-  try {
-    decoded = jwt.verify(body.refresh_token, MyGlobal.env.JWT_SECRET_KEY, {
-      issuer: "autobe",
-    });
-  } catch (err) {
-    throw new HttpException("Invalid or expired refresh token", 401);
+  // 1. Find the session by refresh_token
+  const session = await MyGlobal.prisma.shopping_mall_user_sessions.findUnique({
+    where: { refresh_token },
+  });
+  if (!session || session.revoked_at !== null) {
+    throw new HttpException("인증 실패: 잘못된 리프레시 토큰입니다.", 401);
   }
 
-  // 2. Determine seller id (payload must have type "seller" and id)
-  if (!decoded || decoded.type !== "seller" || !decoded.id) {
-    throw new HttpException("Invalid refresh token payload for seller", 401);
+  // 2. Check refresh token expiry
+  const now = new Date();
+  if (session.expires_at <= now) {
+    throw new HttpException("인증 실패: 리프레시 토큰이 만료되었습니다.", 401);
   }
-  const sellerId = decoded.id;
+  const nowStr = toISOStringSafe(now) as string & tags.Format<"date-time">;
 
-  // 3. Fetch seller by id, include customer (for customer check)
+  // 3. Find the seller and validate status
   const seller = await MyGlobal.prisma.shopping_mall_sellers.findUnique({
-    where: { id: sellerId },
-    include: { customer: true },
+    where: { id: session.user_id },
   });
-  if (!seller) {
-    throw new HttpException("Seller not found", 404);
-  }
-  // Domain checks for soft-deletion and status - seller
-  if (seller.deleted_at !== null) {
-    throw new HttpException("Seller account deleted", 403);
-  }
-  if (seller.status !== "active") {
-    throw new HttpException("Seller account is not active", 403);
-  }
-  // Domain checks for customer
-  if (!seller.customer || seller.customer.deleted_at !== null) {
-    throw new HttpException("Customer account deleted", 403);
-  }
-  if (seller.customer.status !== "active") {
-    throw new HttpException("Customer account is not active", 403);
+  if (
+    !seller ||
+    seller.deleted_at !== null ||
+    seller.approval_status !== "approved" ||
+    seller.email_verified !== true
+  ) {
+    throw new HttpException(
+      "인증 실패: 판매자 계정이 유효하지 않거나 활성화되지 않았습니다.",
+      401,
+    );
   }
 
-  // 4. Generate new tokens (expire: 1h for access, 7d for refresh)
-  const nowMillis = Date.now();
-  const accessExpiresAt = new Date(nowMillis + 60 * 60 * 1000);
-  const refreshExpiresAt = new Date(nowMillis + 7 * 24 * 60 * 60 * 1000);
+  // 4. Rotate new tokens
+  const accessExpireSec = 60 * 60; // 1 hour
+  const refreshExpireSec = 60 * 60 * 24 * 7; // 7 days
+  const accessExpiresAt = toISOStringSafe(
+    new Date(Date.now() + accessExpireSec * 1000),
+  ) as string & tags.Format<"date-time">;
+  const refreshExpiresAt = toISOStringSafe(
+    new Date(Date.now() + refreshExpireSec * 1000),
+  ) as string & tags.Format<"date-time">;
+  const accessToken = jwt.sign(
+    { id: seller.id, type: "seller" },
+    MyGlobal.env.JWT_SECRET_KEY,
+    { expiresIn: accessExpireSec, issuer: "autobe" },
+  );
+  const newRefreshToken = jwt.sign(
+    { id: seller.id, type: "seller" },
+    MyGlobal.env.JWT_SECRET_KEY,
+    { expiresIn: refreshExpireSec, issuer: "autobe" },
+  );
 
-  const payload = { id: seller.id, type: "seller" };
-  const accessToken = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "1h",
-    issuer: "autobe",
-  });
-  const refreshToken = jwt.sign(payload, MyGlobal.env.JWT_SECRET_KEY, {
-    expiresIn: "7d",
-    issuer: "autobe",
+  // 5. Update session details
+  await MyGlobal.prisma.shopping_mall_user_sessions.update({
+    where: { id: session.id },
+    data: {
+      access_token: accessToken,
+      refresh_token: newRefreshToken,
+      expires_at: refreshExpiresAt,
+      revoked_at: null,
+    },
   });
 
-  // 5. Compose API tokens and auth object (all ISO string, no Date type)
-  const result: IShoppingMallSeller.IAuthorized = {
+  // 6. Return seller DTO with strict types
+  return {
     id: seller.id,
-    shopping_mall_customer_id: seller.shopping_mall_customer_id,
-    shopping_mall_section_id: seller.shopping_mall_section_id,
-    profile_name: seller.profile_name,
-    status: seller.status,
-    approval_at: seller.approval_at
-      ? toISOStringSafe(seller.approval_at)
-      : null,
-    kyc_status: seller.kyc_status,
-    created_at: toISOStringSafe(seller.created_at),
-    updated_at: toISOStringSafe(seller.updated_at),
-    deleted_at: seller.deleted_at ? toISOStringSafe(seller.deleted_at) : null,
+    email: seller.email,
+    business_name: seller.business_name,
+    contact_name: seller.contact_name,
+    phone: seller.phone,
+    ...(seller.kyc_document_uri != null && {
+      kyc_document_uri: seller.kyc_document_uri,
+    }),
+    approval_status: seller.approval_status,
+    business_registration_number: seller.business_registration_number,
+    email_verified: seller.email_verified,
+    created_at: toISOStringSafe(seller.created_at) as string &
+      tags.Format<"date-time">,
+    updated_at: toISOStringSafe(seller.updated_at) as string &
+      tags.Format<"date-time">,
+    ...(seller.deleted_at != null && {
+      deleted_at: toISOStringSafe(seller.deleted_at) as string &
+        tags.Format<"date-time">,
+    }),
     token: {
       access: accessToken,
-      refresh: refreshToken,
-      expired_at: toISOStringSafe(accessExpiresAt),
-      refreshable_until: toISOStringSafe(refreshExpiresAt),
-    },
-    seller: {
-      id: seller.id,
-      shopping_mall_section_id: seller.shopping_mall_section_id,
-      profile_name: seller.profile_name,
-      status: seller.status,
-      approval_at: seller.approval_at
-        ? toISOStringSafe(seller.approval_at)
-        : null,
-      kyc_status: seller.kyc_status,
-      created_at: toISOStringSafe(seller.created_at),
-      updated_at: toISOStringSafe(seller.updated_at),
-      deleted_at: seller.deleted_at ? toISOStringSafe(seller.deleted_at) : null,
+      refresh: newRefreshToken,
+      expired_at: accessExpiresAt,
+      refreshable_until: refreshExpiresAt,
     },
   };
-  return result;
 }

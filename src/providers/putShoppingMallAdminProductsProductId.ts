@@ -15,103 +15,84 @@ export async function putShoppingMallAdminProductsProductId(props: {
   productId: string & tags.Format<"uuid">;
   body: IShoppingMallProduct.IUpdate;
 }): Promise<IShoppingMallProduct> {
+  // 1. Fetch product, ensure it exists and not deleted
   const product = await MyGlobal.prisma.shopping_mall_products.findUnique({
     where: { id: props.productId },
   });
   if (!product || product.deleted_at !== null) {
-    throw new HttpException("Product not found or has been deleted", 404);
+    throw new HttpException("Product not found", 404);
   }
 
-  if (props.body.code !== undefined) {
-    const codeDupe = await MyGlobal.prisma.shopping_mall_products.findFirst({
-      where: {
-        code: props.body.code,
-        id: { not: props.productId },
-      },
+  // 2. If updating category, fetch category and validate active, leaf
+  if (
+    props.body.shopping_mall_category_id !== undefined &&
+    props.body.shopping_mall_category_id !== null
+  ) {
+    const category = await MyGlobal.prisma.shopping_mall_categories.findUnique({
+      where: { id: props.body.shopping_mall_category_id },
     });
-    if (codeDupe) {
-      throw new HttpException("Duplicate product code", 409);
+    if (!category || category.deleted_at !== null || !category.is_active) {
+      throw new HttpException("Category not found or inactive", 400);
+    }
+    const hasChildren = await MyGlobal.prisma.shopping_mall_categories.count({
+      where: { parent_id: category.id, deleted_at: null },
+    });
+    if (hasChildren > 0) {
+      throw new HttpException(
+        "Category is not a leaf and cannot be assigned",
+        400,
+      );
     }
   }
-  if (props.body.name !== undefined) {
-    const nameDupe = await MyGlobal.prisma.shopping_mall_products.findFirst({
+
+  // 3. If updating name, check uniqueness within seller scope (ignore self)
+  if (
+    props.body.name !== undefined &&
+    props.body.name !== product.name &&
+    props.body.name.length > 0
+  ) {
+    const exists = await MyGlobal.prisma.shopping_mall_products.findFirst({
       where: {
+        shopping_mall_seller_id: product.shopping_mall_seller_id,
         name: props.body.name,
-        id: { not: props.productId },
+        id: { not: product.id },
+        deleted_at: null,
       },
     });
-    if (nameDupe) {
-      throw new HttpException("Duplicate product name", 409);
+    if (exists) {
+      throw new HttpException("Duplicate product name for seller", 409);
     }
   }
 
-  const now = toISOStringSafe(new Date());
+  // 4. Update product fields
   const updated = await MyGlobal.prisma.shopping_mall_products.update({
-    where: { id: props.productId },
+    where: { id: product.id },
     data: {
-      shopping_mall_channel_id:
-        props.body.shopping_mall_channel_id ?? undefined,
-      shopping_mall_section_id:
-        props.body.shopping_mall_section_id ?? undefined,
       shopping_mall_category_id:
         props.body.shopping_mall_category_id ?? undefined,
-      code: props.body.code ?? undefined,
       name: props.body.name ?? undefined,
-      status: props.body.status ?? undefined,
-      business_status: props.body.business_status ?? undefined,
-      updated_at: now,
-    },
-  });
-
-  const lastSnapshot =
-    await MyGlobal.prisma.shopping_mall_product_snapshots.findFirst({
-      where: { shopping_mall_product_id: props.productId },
-      orderBy: { snapshot_version: "desc" },
-    });
-  const nextSnapshotVersion = lastSnapshot
-    ? lastSnapshot.snapshot_version + 1
-    : 1;
-  await MyGlobal.prisma.shopping_mall_product_snapshots.create({
-    data: {
-      id: v4(),
-      shopping_mall_product_id: updated.id,
-      snapshot_version: nextSnapshotVersion,
-      data_json: JSON.stringify({
-        id: updated.id,
-        shopping_mall_seller_id: updated.shopping_mall_seller_id,
-        shopping_mall_channel_id: updated.shopping_mall_channel_id,
-        shopping_mall_section_id: updated.shopping_mall_section_id,
-        shopping_mall_category_id: updated.shopping_mall_category_id,
-        code: updated.code,
-        name: updated.name,
-        status: updated.status,
-        business_status: updated.business_status,
-        created_at: toISOStringSafe(updated.created_at),
-        updated_at: toISOStringSafe(updated.updated_at),
-        deleted_at:
-          updated.deleted_at !== null && updated.deleted_at !== undefined
-            ? toISOStringSafe(updated.deleted_at)
-            : undefined,
-      }),
-      created_at: now,
+      description: props.body.description ?? undefined,
+      is_active: props.body.is_active ?? undefined,
+      main_image_url:
+        props.body.main_image_url === undefined
+          ? undefined
+          : props.body.main_image_url,
+      updated_at: toISOStringSafe(new Date()),
     },
   });
 
   return {
     id: updated.id,
-    shopping_mall_seller_id: updated.shopping_mall_seller_id,
-    shopping_mall_channel_id: updated.shopping_mall_channel_id,
-    shopping_mall_section_id: updated.shopping_mall_section_id,
-    shopping_mall_category_id: updated.shopping_mall_category_id,
-    code: updated.code,
     name: updated.name,
-    status: updated.status,
-    business_status: updated.business_status,
+    description: updated.description,
+    is_active: updated.is_active,
+    main_image_url:
+      updated.main_image_url === null ? undefined : updated.main_image_url,
     created_at: toISOStringSafe(updated.created_at),
     updated_at: toISOStringSafe(updated.updated_at),
     deleted_at:
-      updated.deleted_at !== null && updated.deleted_at !== undefined
-        ? toISOStringSafe(updated.deleted_at)
-        : undefined,
+      updated.deleted_at === null || updated.deleted_at === undefined
+        ? undefined
+        : toISOStringSafe(updated.deleted_at),
   };
 }

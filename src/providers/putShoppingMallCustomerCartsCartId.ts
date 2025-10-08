@@ -8,6 +8,7 @@ import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
 import { IShoppingMallCart } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallCart";
+import { IShoppingMallCartItem } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallCartItem";
 import { CustomerPayload } from "../decorators/payload/CustomerPayload";
 
 export async function putShoppingMallCustomerCartsCartId(props: {
@@ -17,58 +18,61 @@ export async function putShoppingMallCustomerCartsCartId(props: {
 }): Promise<IShoppingMallCart> {
   const { customer, cartId, body } = props;
 
-  // 1. Fetch and check cart
+  // Step 1: Retrieve cart and check existence/ownership
   const cart = await MyGlobal.prisma.shopping_mall_carts.findUnique({
     where: { id: cartId },
+    select: {
+      id: true,
+      shopping_mall_customer_id: true,
+      created_at: true,
+      updated_at: true,
+    },
   });
-  if (!cart || cart.deleted_at !== null) {
+  if (!cart) {
     throw new HttpException("Cart not found", 404);
   }
   if (cart.shopping_mall_customer_id !== customer.id) {
     throw new HttpException(
-      "Unauthorized: You can only update your own cart",
+      "Forbidden: Cart does not belong to this customer",
       403,
     );
   }
 
-  // 2. Build update input, updating only allowed fields + updated_at, handle soft-delete
-  const now = toISOStringSafe(new Date());
-  const updateInput: Record<string, unknown> = {
-    ...(body.shopping_mall_channel_id !== undefined && {
-      shopping_mall_channel_id: body.shopping_mall_channel_id,
-    }),
-    ...(body.shopping_mall_section_id !== undefined && {
-      shopping_mall_section_id: body.shopping_mall_section_id,
-    }),
-    ...(body.source !== undefined && { source: body.source }),
-    ...(body.status !== undefined && { status: body.status }),
-    ...(body.expires_at !== undefined && { expires_at: body.expires_at }),
-    updated_at: now,
-    ...(body.status === "deleted" && { deleted_at: now }),
-  };
-
-  const updated = await MyGlobal.prisma.shopping_mall_carts.update({
+  // Step 2: Update only updated_at
+  await MyGlobal.prisma.shopping_mall_carts.update({
     where: { id: cartId },
-    data: updateInput,
+    data: {
+      updated_at: body.updated_at,
+    },
   });
 
-  // 3. Return DTO with proper null/undefined logic for dates
+  // Step 3: Refetch cart and items
+  const updated = await MyGlobal.prisma.shopping_mall_carts.findUnique({
+    where: { id: cartId },
+    select: {
+      id: true,
+      shopping_mall_customer_id: true,
+      created_at: true,
+      updated_at: true,
+      shopping_mall_cart_items: true,
+    },
+  });
+  if (!updated) {
+    throw new HttpException("Cart not found", 404);
+  }
   return {
     id: updated.id,
     shopping_mall_customer_id: updated.shopping_mall_customer_id,
-    shopping_mall_channel_id: updated.shopping_mall_channel_id,
-    shopping_mall_section_id: updated.shopping_mall_section_id,
-    source: updated.source,
-    status: updated.status,
-    expires_at:
-      updated.expires_at === null || updated.expires_at === undefined
-        ? (updated.expires_at ?? undefined)
-        : toISOStringSafe(updated.expires_at),
     created_at: toISOStringSafe(updated.created_at),
     updated_at: toISOStringSafe(updated.updated_at),
-    deleted_at:
-      updated.deleted_at === null || updated.deleted_at === undefined
-        ? (updated.deleted_at ?? undefined)
-        : toISOStringSafe(updated.deleted_at),
+    cart_items: updated.shopping_mall_cart_items.map((item) => ({
+      id: item.id,
+      shopping_mall_cart_id: item.shopping_mall_cart_id,
+      shopping_mall_product_sku_id: item.shopping_mall_product_sku_id,
+      quantity: item.quantity,
+      unit_price_snapshot: item.unit_price_snapshot,
+      created_at: toISOStringSafe(item.created_at),
+      updated_at: toISOStringSafe(item.updated_at),
+    })),
   };
 }

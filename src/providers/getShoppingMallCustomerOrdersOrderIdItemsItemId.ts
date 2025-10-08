@@ -15,49 +15,59 @@ export async function getShoppingMallCustomerOrdersOrderIdItemsItemId(props: {
   orderId: string & tags.Format<"uuid">;
   itemId: string & tags.Format<"uuid">;
 }): Promise<IShoppingMallOrderItem> {
-  const order = await MyGlobal.prisma.shopping_mall_orders.findFirst({
-    where: {
-      id: props.orderId,
-      deleted_at: null,
-    },
+  const item = await MyGlobal.prisma.shopping_mall_order_items.findUnique({
+    where: { id: props.itemId },
     select: {
       id: true,
-      shopping_mall_customer_id: true,
+      shopping_mall_order_id: true,
+      shopping_mall_product_sku_id: true,
+      item_name: true,
+      sku_code: true,
+      quantity: true,
+      unit_price: true,
+      currency: true,
+      item_total: true,
+      refund_status: true,
+      created_at: true,
+      updated_at: true,
+      deleted_at: true,
+      order: {
+        select: {
+          id: true,
+          shopping_mall_customer_id: true,
+          deleted_at: true,
+        },
+      },
     },
   });
-  if (!order) {
-    throw new HttpException("Order not found", 404);
-  }
-  if (order.shopping_mall_customer_id !== props.customer.id) {
-    throw new HttpException(
-      "Forbidden: You do not have access to this order",
-      403,
-    );
-  }
-  const item = await MyGlobal.prisma.shopping_mall_order_items.findFirst({
-    where: {
-      id: props.itemId,
-      shopping_mall_order_id: props.orderId,
-      deleted_at: null,
-    },
-  });
-  if (!item) {
+
+  if (!item || item.shopping_mall_order_id !== props.orderId) {
     throw new HttpException("Order item not found", 404);
   }
+  if (item.order.deleted_at !== null) {
+    throw new HttpException("Order not found", 404);
+  }
+  if (item.order.shopping_mall_customer_id !== props.customer.id) {
+    throw new HttpException("Forbidden: You do not own this order", 403);
+  }
+  if (item.deleted_at !== null) {
+    throw new HttpException("Order item not found", 404);
+  }
+
   return {
     id: item.id,
     shopping_mall_order_id: item.shopping_mall_order_id,
-    shopping_mall_product_id: item.shopping_mall_product_id,
-    shopping_mall_product_variant_id:
-      item.shopping_mall_product_variant_id ?? undefined,
-    shopping_mall_seller_id: item.shopping_mall_seller_id,
+    shopping_mall_product_sku_id: item.shopping_mall_product_sku_id,
+    item_name: item.item_name,
+    sku_code: item.sku_code,
     quantity: item.quantity,
     unit_price: item.unit_price,
-    final_price: item.final_price,
-    discount_snapshot: item.discount_snapshot ?? undefined,
-    status: item.status,
+    currency: item.currency,
+    item_total: item.item_total,
+    refund_status: item.refund_status,
     created_at: toISOStringSafe(item.created_at),
     updated_at: toISOStringSafe(item.updated_at),
-    deleted_at: item.deleted_at ? toISOStringSafe(item.deleted_at) : undefined,
+    deleted_at:
+      item.deleted_at === null ? null : toISOStringSafe(item.deleted_at),
   };
 }

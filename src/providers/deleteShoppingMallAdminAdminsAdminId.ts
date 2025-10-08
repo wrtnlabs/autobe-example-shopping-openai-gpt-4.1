@@ -13,18 +13,20 @@ export async function deleteShoppingMallAdminAdminsAdminId(props: {
   admin: AdminPayload;
   adminId: string & tags.Format<"uuid">;
 }): Promise<void> {
-  const target = await MyGlobal.prisma.shopping_mall_admins.findFirst({
-    where: {
-      id: props.adminId,
-      deleted_at: null,
-    },
+  const { admin, adminId } = props;
+  // Fetch the target admin to ensure they exist.
+  const targetAdmin = await MyGlobal.prisma.shopping_mall_admins.findUnique({
+    where: { id: adminId },
   });
-  if (target === null) {
-    throw new HttpException("Admin not found or already deleted", 404);
+  if (!targetAdmin) {
+    throw new HttpException("Admin not found", 404);
   }
-
-  await MyGlobal.prisma.shopping_mall_admins.update({
-    where: { id: props.adminId },
-    data: { deleted_at: toISOStringSafe(new Date()) },
+  // Cannot delete yourself
+  if (admin.id === adminId) {
+    throw new HttpException("Admins cannot delete their own account", 403);
+  }
+  // If platform distinguishes super-admins, check status or role. Here, as no explicit field exists, assume all admins are equal.
+  await MyGlobal.prisma.shopping_mall_admins.delete({
+    where: { id: adminId },
   });
 }

@@ -16,89 +16,55 @@ export async function putShoppingMallSellerProductsProductIdOptionsOptionId(prop
   optionId: string & tags.Format<"uuid">;
   body: IShoppingMallProductOption.IUpdate;
 }): Promise<IShoppingMallProductOption> {
-  const { seller, productId, optionId, body } = props;
-  // 1. Fetch product and check ownership
-  const product = await MyGlobal.prisma.shopping_mall_products.findUnique({
-    where: { id: productId },
-    select: {
-      id: true,
-      shopping_mall_seller_id: true,
-      deleted_at: true,
+  // Verify product belongs to this seller
+  const product = await MyGlobal.prisma.shopping_mall_products.findFirst({
+    where: {
+      id: props.productId,
+      shopping_mall_seller_id: props.seller.id,
+      deleted_at: null,
     },
   });
-  if (!product || product.deleted_at !== null) {
-    throw new HttpException("Product not found", 404);
+  if (!product) {
+    throw new HttpException("Product not found or unauthorized", 404);
   }
-  if (product.shopping_mall_seller_id !== seller.id) {
-    throw new HttpException("Forbidden: You do not own this product", 403);
-  }
-  // 2. Fetch the option
-  const option = await MyGlobal.prisma.shopping_mall_product_options.findUnique(
-    {
-      where: { id: optionId },
-      select: {
-        id: true,
-        shopping_mall_product_id: true,
-        name: true,
-        deleted_at: true,
-      },
+
+  // Find the option and ensure it's part of the correct product
+  const option = await MyGlobal.prisma.shopping_mall_product_options.findFirst({
+    where: {
+      id: props.optionId,
+      shopping_mall_product_id: props.productId,
     },
-  );
-  if (
-    !option ||
-    option.shopping_mall_product_id !== productId ||
-    option.deleted_at !== null
-  ) {
-    throw new HttpException("Option not found", 404);
+  });
+  if (!option) {
+    throw new HttpException("Product option not found", 404);
   }
-  // 3. Check for duplicate name if updating name
-  if (typeof body.name === "string" && body.name !== option.name) {
-    const count = await MyGlobal.prisma.shopping_mall_product_options.count({
-      where: {
-        shopping_mall_product_id: productId,
-        name: body.name,
-        id: { not: optionId },
-        deleted_at: null,
+
+  // Attempt update
+  let updated;
+  try {
+    updated = await MyGlobal.prisma.shopping_mall_product_options.update({
+      where: { id: props.optionId },
+      data: {
+        name: props.body.name ?? undefined,
+        display_order: props.body.display_order ?? undefined,
+        updated_at: toISOStringSafe(new Date()),
       },
     });
-    if (count > 0) {
-      throw new HttpException(
-        "Option name must be unique within this product",
-        409,
-      );
+  } catch (err: any) {
+    // Duplicate name unique constraint violated for (shopping_mall_product_id, name)
+    if (err && typeof err.code === "string" && err.code === "P2002") {
+      throw new HttpException("Duplicate option name for this product", 409);
     }
+    throw err;
   }
-  // 4. Prepare update input
-  const now = toISOStringSafe(new Date());
-  const updated = await MyGlobal.prisma.shopping_mall_product_options.update({
-    where: { id: optionId },
-    data: {
-      ...(body.name !== undefined ? { name: body.name } : {}),
-      ...(body.required !== undefined ? { required: body.required } : {}),
-      ...(body.position !== undefined ? { position: body.position } : {}),
-      updated_at: now,
-    },
-    select: {
-      id: true,
-      shopping_mall_product_id: true,
-      name: true,
-      required: true,
-      position: true,
-      created_at: true,
-      updated_at: true,
-      deleted_at: true,
-    },
-  });
+
+  // Convert Date fields to string & tags.Format<'date-time'> (never use Date type)
   return {
     id: updated.id,
     shopping_mall_product_id: updated.shopping_mall_product_id,
     name: updated.name,
-    required: updated.required,
-    position: updated.position,
+    display_order: updated.display_order,
     created_at: toISOStringSafe(updated.created_at),
     updated_at: toISOStringSafe(updated.updated_at),
-    deleted_at: updated.deleted_at
-      ? toISOStringSafe(updated.deleted_at)
-      : undefined,
   };
 }

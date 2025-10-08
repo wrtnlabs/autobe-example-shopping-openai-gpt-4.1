@@ -1,0 +1,157 @@
+/// Represents a customer's shopping cart before order placement. Each
+/// customer can have only one active cart at a time, holding zero or more
+/// cart items. The cart persists for abandoned sessions and is restored on
+/// user login. Related to {@link shopping_mall_customers}.
+///
+/// @namespace Shopping
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_carts {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged customer's {@link shopping_mall_customers.id}. Represents cart
+  /// ownership by a customer. Must be unique per customer.
+  shopping_mall_customer_id String
+  
+  /// Timestamp when this cart was created (initial assignment or first use).
+  created_at DateTime
+  
+  /// Timestamp of the last modification of this cart or its items.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_cart_items shopping_mall_cart_items[]
+  
+  @@unique([shopping_mall_customer_id])
+  @@index([created_at])
+}
+
+/// Line items within a shopping cart, each referencing a product SKU, and
+/// storing quantity and unit price at the time of cart insertion. Always
+/// managed through its parent cart. Related to {@link shopping_mall_carts},
+/// {@link shopping_mall_product_skus}.
+///
+/// @namespace Shopping
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_cart_items {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Cart containing this item. References {@link shopping_mall_carts.id}.
+  shopping_mall_cart_id String
+  
+  /// Referenced product SKU. Foreign key to {@link
+  /// shopping_mall_product_skus.id}.
+  shopping_mall_product_sku_id String
+  
+  /// Number of units of this SKU in the cart (must be at least 1, up to
+  /// business-configured maximum).
+  quantity Int
+  
+  /// Unit price of the SKU at the time the item was added to cart. Used for
+  /// price consistency and historical context. Not adjusted after addition.
+  unit_price_snapshot Float
+  
+  /// Timestamp when this cart item was created.
+  created_at DateTime
+  
+  /// Timestamp when this cart item was last modified (quantity updated, etc.).
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  cart shopping_mall_carts @relation(fields: [shopping_mall_cart_id], references: [id], onDelete: Cascade)
+  productSku shopping_mall_product_skus @relation(fields: [shopping_mall_product_sku_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_product_sku_id])
+  
+  @@unique([shopping_mall_cart_id, shopping_mall_product_sku_id], map: "shopping_mall_cart_items_shopping_mall_cart_id_shoppin_a08301be")
+  @@index([created_at])
+  @@index([shopping_mall_cart_id])
+}
+
+/// Saved wishlist for a customer. Each customer may have one wishlist,
+/// containing wishlist items (not specific SKUs). Managed independently of
+/// cart. Related to {@link shopping_mall_customers}.
+///
+/// @namespace Shopping
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_wishlists {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Wishlist owner. References {@link shopping_mall_customers.id}. Must be
+  /// unique per customer.
+  shopping_mall_customer_id String
+  
+  /// Timestamp when wishlist was created.
+  created_at DateTime
+  
+  /// Timestamp of last modification or addition/removal of items.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  customer shopping_mall_customers @relation(fields: [shopping_mall_customer_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_wishlist_items shopping_mall_wishlist_items[]
+  
+  @@unique([shopping_mall_customer_id])
+  @@index([created_at])
+}
+
+/// Line items within a customer's wishlist, linking wishlist to products
+/// (not SKUs). Managed as subsidiary of wishlist entity. Enforces uniqueness
+/// per (wishlist, product) pair. Related to {@link shopping_mall_wishlists}
+/// and {@link shopping_mall_products}.
+///
+/// @namespace Shopping
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_wishlist_items {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Wishlist this item belongs to. References {@link
+  /// shopping_mall_wishlists.id}.
+  shopping_mall_wishlist_id String
+  
+  /// Product reference for wishlist item. References {@link
+  /// shopping_mall_products.id}.
+  shopping_mall_product_id String
+  
+  /// Timestamp when this product was added to the wishlist.
+  created_at DateTime
+  
+  /// Timestamp of last update to this wishlist item.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  wishlist shopping_mall_wishlists @relation(fields: [shopping_mall_wishlist_id], references: [id], onDelete: Cascade)
+  product shopping_mall_products @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_product_id])
+  
+  @@unique([shopping_mall_wishlist_id, shopping_mall_product_id], map: "shopping_mall_wishlist_items_shopping_mall_wishlist_id_57096080")
+  @@index([created_at])
+  @@index([shopping_mall_wishlist_id])
+}

@@ -16,57 +16,73 @@ export async function patchShoppingMallAdminAdmins(props: {
   admin: AdminPayload;
   body: IShoppingMallAdmin.IRequest;
 }): Promise<IPageIShoppingMallAdmin.ISummary> {
-  const {
-    page = 1,
-    limit = 20,
-    status,
-    kyc_status,
-    email,
-    name,
-    created_from,
-    created_to,
-  } = props.body;
+  const { admin, body } = props;
+  if (!admin || admin.type !== "admin") {
+    throw new HttpException(
+      "Unauthorized: Only platform admins can access this resource",
+      403,
+    );
+  }
 
+  const page = body.page ?? 1;
+  const limit = body.limit ?? 20;
   const skip = (page - 1) * limit;
+
+  // Build where condition
   const where = {
     deleted_at: null,
-    ...(status !== undefined && status !== null && status !== ""
-      ? { status }
-      : {}),
-    ...(kyc_status !== undefined && kyc_status !== null && kyc_status !== ""
-      ? { kyc_status }
-      : {}),
-    ...(email !== undefined && email !== null && email !== ""
-      ? { email: { contains: email } }
-      : {}),
-    ...(name !== undefined && name !== null && name !== ""
-      ? { name: { contains: name } }
-      : {}),
-    ...((created_from !== undefined && created_from !== null) ||
-    (created_to !== undefined && created_to !== null)
+    ...(body.status !== undefined && { status: body.status }),
+    ...(body.email !== undefined && {
+      email: { contains: body.email },
+    }),
+    ...(body.full_name !== undefined && {
+      full_name: { contains: body.full_name },
+    }),
+    ...(body.created_from !== undefined || body.created_to !== undefined
       ? {
           created_at: {
-            ...(created_from !== undefined &&
-            created_from !== null &&
-            created_from !== ""
-              ? { gte: created_from }
-              : {}),
-            ...(created_to !== undefined &&
-            created_to !== null &&
-            created_to !== ""
-              ? { lte: created_to }
-              : {}),
+            ...(body.created_from !== undefined && { gte: body.created_from }),
+            ...(body.created_to !== undefined && { lte: body.created_to }),
+          },
+        }
+      : {}),
+    ...(body.last_login_from !== undefined || body.last_login_to !== undefined
+      ? {
+          last_login_at: {
+            ...(body.last_login_from !== undefined && {
+              gte: body.last_login_from,
+            }),
+            ...(body.last_login_to !== undefined && {
+              lte: body.last_login_to,
+            }),
           },
         }
       : {}),
   };
 
-  const [admins, total] = await Promise.all([
+  // Safe sort_by
+  const allowedSortFields = ["created_at", "status", "full_name", "email"];
+  const sortBy = allowedSortFields.includes(body.sort_by ?? "")
+    ? body.sort_by!
+    : "created_at";
+  const sortOrder = body.sort_order === "asc" ? "asc" : "desc";
+
+  const [rows, total] = await Promise.all([
     MyGlobal.prisma.shopping_mall_admins.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy: { [sortBy]: sortOrder },
       skip,
       take: limit,
+      select: {
+        id: true,
+        email: true,
+        full_name: true,
+        status: true,
+        last_login_at: true,
+        created_at: true,
+        updated_at: true,
+        deleted_at: true,
+      },
     }),
     MyGlobal.prisma.shopping_mall_admins.count({ where }),
   ]);
@@ -78,19 +94,17 @@ export async function patchShoppingMallAdminAdmins(props: {
       records: total,
       pages: Math.ceil(total / limit),
     },
-    data: admins.map((admin) => {
-      const summary = {
-        id: admin.id,
-        email: admin.email,
-        name: admin.name,
-        status: admin.status,
-        kyc_status: admin.kyc_status,
-        created_at: toISOStringSafe(admin.created_at),
-        updated_at: toISOStringSafe(admin.updated_at),
-      };
-      return admin.deleted_at !== null && admin.deleted_at !== undefined
-        ? { ...summary, deleted_at: toISOStringSafe(admin.deleted_at) }
-        : summary;
-    }),
+    data: rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      full_name: row.full_name,
+      status: row.status,
+      last_login_at: row.last_login_at
+        ? toISOStringSafe(row.last_login_at)
+        : null,
+      created_at: toISOStringSafe(row.created_at),
+      updated_at: toISOStringSafe(row.updated_at),
+      deleted_at: row.deleted_at ? toISOStringSafe(row.deleted_at) : null,
+    })),
   };
 }

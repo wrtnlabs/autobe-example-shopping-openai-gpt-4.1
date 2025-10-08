@@ -16,75 +16,41 @@ export async function putShoppingMallAdminProductsProductIdOptionsOptionId(props
   optionId: string & tags.Format<"uuid">;
   body: IShoppingMallProductOption.IUpdate;
 }): Promise<IShoppingMallProductOption> {
-  const now = toISOStringSafe(new Date());
-  // 1. Find target option and check productId match
-  const option = await MyGlobal.prisma.shopping_mall_product_options.findFirst({
-    where: {
-      id: props.optionId,
-      shopping_mall_product_id: props.productId,
-      deleted_at: null,
-    },
-  });
-  if (!option)
-    throw new HttpException(
-      "Option not found for product or already deleted",
-      404,
-    );
-
-  // 2. If updating name, check uniqueness within same product
-  if (
-    props.body.name !== undefined &&
-    props.body.name !== null &&
-    props.body.name !== option.name
-  ) {
-    const duplicate =
-      await MyGlobal.prisma.shopping_mall_product_options.findFirst({
-        where: {
-          shopping_mall_product_id: props.productId,
-          name: props.body.name,
-          id: { not: props.optionId },
-          deleted_at: null,
-        },
-        select: { id: true },
-      });
-    if (duplicate) {
-      throw new HttpException(
-        "Another option with this name exists for this product",
-        409,
-      );
-    }
-  }
-
-  // 3. Build update fields immutably
-  await MyGlobal.prisma.shopping_mall_product_options.update({
-    where: { id: props.optionId },
-    data: {
-      ...(props.body.name !== undefined ? { name: props.body.name } : {}),
-      ...(props.body.required !== undefined
-        ? { required: props.body.required }
-        : {}),
-      ...(props.body.position !== undefined
-        ? { position: props.body.position }
-        : {}),
-      updated_at: now,
-    },
-  });
-
-  // 4. Re-fetch updated option
-  const updated =
-    await MyGlobal.prisma.shopping_mall_product_options.findUniqueOrThrow({
-      where: { id: props.optionId },
+  // Find the option by both id and product id
+  const existing =
+    await MyGlobal.prisma.shopping_mall_product_options.findFirst({
+      where: {
+        id: props.optionId,
+        shopping_mall_product_id: props.productId,
+      },
     });
-
-  // 5. Return object per DTO (convert dates, preserve types, do not use 'as')
-  return {
-    id: updated.id,
-    shopping_mall_product_id: updated.shopping_mall_product_id,
-    name: updated.name,
-    required: updated.required,
-    position: updated.position,
-    created_at: toISOStringSafe(updated.created_at),
-    updated_at: toISOStringSafe(updated.updated_at),
-    deleted_at: updated.deleted_at ? toISOStringSafe(updated.deleted_at) : null,
-  };
+  if (!existing) {
+    throw new HttpException("Product option not found", 404);
+  }
+  try {
+    const updated = await MyGlobal.prisma.shopping_mall_product_options.update({
+      where: { id: props.optionId },
+      data: {
+        name: props.body.name ?? undefined,
+        display_order: props.body.display_order ?? undefined,
+        updated_at: toISOStringSafe(new Date()),
+      },
+    });
+    return {
+      id: updated.id,
+      shopping_mall_product_id: updated.shopping_mall_product_id,
+      name: updated.name,
+      display_order: updated.display_order,
+      created_at: toISOStringSafe(updated.created_at),
+      updated_at: toISOStringSafe(updated.updated_at),
+    };
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      throw new HttpException("Duplicate option name for this product", 409);
+    }
+    throw err;
+  }
 }

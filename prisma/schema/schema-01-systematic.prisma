@@ -1,259 +1,186 @@
-/// Defines logical shopping mall channels (distinct sales
-/// domains/applications/brands) serving as the top-level context for all
-/// subsequent entities. Channel is the anchor for section, category,
-/// catalog, order, and configuration scoping. Each channel may represent a
-/// separate storefront, brand, or localized instance.
+/// Hierarchical category tree table for organizing all products,
+/// collections, and search facets. Supports multilingual category
+/// names/descriptions. Self-referencing for parent/child, root categories
+/// have null parent_id. Used platform-wide for all systems referencing
+/// categories (products, catalogs, navigation, admin tools). Enforces unique
+/// category names within a parent for each language. Fast text search and
+/// hierarchical queries supported. All changes trigger global cache
+/// invalidation. {@link shopping_mall_categories.id}.
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model shopping_mall_channels {
+model shopping_mall_categories {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Unique business code for the channel (e.g., 'main', 'korea', 'brandX').
-  /// Used for API routing and business rule scoping.
-  code String
-  
-  /// Human-readable name of the channel. Used in admin UI and business
-  /// communication.
-  name String
-  
-  /// General description and business context of the channel.
-  description String?
-  
-  /// Channel creation time.
-  created_at DateTime
-  
-  /// Last update time of the channel info.
-  updated_at DateTime
-  
-  /// Channel deletion time (soft delete).
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  shopping_mall_sections shopping_mall_sections[]
-  shopping_mall_channel_categories shopping_mall_channel_categories[]
-  shopping_mall_configurations shopping_mall_configurations[]
-  shopping_mall_customers shopping_mall_customers[]
-  shopping_mall_products shopping_mall_products[]
-  shopping_mall_carts shopping_mall_carts[]
-  shopping_mall_orders shopping_mall_orders[]
-  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
-  shopping_mall_boards shopping_mall_boards[]
-  
-  @@unique([code])
-  @@index([created_at])
-}
-
-/// Logical groupings within a channel (e.g. 'Best Deal', 'International',
-/// 'Seasonal'), referencing the owning channel. Used for merchandising,
-/// curation, and business rules. Hierarchically below channels, but may span
-/// multiple business domains.
-///
-/// @namespace Systematic
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model shopping_mall_sections {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Belonged channel's {@link shopping_mall_channels.id}.
-  shopping_mall_channel_id String
-  
-  /// Unique section code, scoped to channel, for business identification
-  /// (e.g., 'home', 'event', 'bestseller').
-  code String
-  
-  /// Section display name as seen in business UI or user application.
-  name String
-  
-  /// Short description of the section's purpose.
-  description String?
-  
-  /// Integer order for listing sections within a channel.
-  display_order Int
-  
-  /// Section creation time.
-  created_at DateTime
-  
-  /// Section update time.
-  updated_at DateTime
-  
-  /// Section deletion time (soft delete); remains for audit/tracking.
-  deleted_at DateTime?
-  
-  //----
-  // RELATIONS
-  //----
-  channel shopping_mall_channels @relation(fields: [shopping_mall_channel_id], references: [id], onDelete: Cascade)
-  
-  shopping_mall_sellers shopping_mall_sellers[]
-  shopping_mall_products shopping_mall_products[]
-  shopping_mall_carts shopping_mall_carts[]
-  shopping_mall_orders shopping_mall_orders[]
-  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
-  shopping_mall_boards shopping_mall_boards[]
-  
-  @@unique([shopping_mall_channel_id, code])
-  @@index([shopping_mall_channel_id, display_order], map: "shopping_mall_sections_shopping_mall_channel_id_displa_d6778c49")
-}
-
-/// Hierarchical categories defining product or section classification within
-/// a given channel. Supports parent-child nesting for multi-level trees.
-/// Used for search, browse, campaign targeting, and rule scoping. Each
-/// belongs to a channel and can reference a parent category (self-relation).
-///
-/// @namespace Systematic
-/// @author AutoBE - https://github.com/wrtnlabs/autobe
-model shopping_mall_channel_categories {
-  //----
-  // COLUMNS
-  //----
-  /// Primary Key.
-  id String @id
-  
-  /// Channel to which the category belongs. {@link shopping_mall_channels.id}.
-  shopping_mall_channel_id String
-  
-  /// Optional reference to parent category for child/descendant relationships.
-  /// {@link shopping_mall_channel_categories.id}.
+  /// Optional parent category's {@link shopping_mall_categories.id}. Root
+  /// categories have null parent_id.
   parent_id String?
   
-  /// Unique category code scoped to channel (and maybe parent). Used in
-  /// routing and business logic.
-  code String
+  /// Category name in Korean. Required for localization support. Unique within
+  /// parent category.
+  name_ko String
   
-  /// Human-readable name of the category.
-  name String
+  /// Category name in English. Required for localization support. Unique
+  /// within parent category.
+  name_en String
   
-  /// Description of the category purpose, contents, or intended merchandise.
-  description String?
+  /// Category description in Korean. Optional for longer text or category
+  /// explanation.
+  description_ko String?
   
-  /// Sort order for UI rendering or admin lists within a parent or channel.
+  /// Category description in English. Optional for longer text or category
+  /// explanation.
+  description_en String?
+  
+  /// Ordering index for display in navigation, 0-based. Allows admin sorting
+  /// of sibling categories.
   display_order Int
   
-  /// Category creation time.
+  /// Whether the category is active/enabled across platform. Inactive disables
+  /// all subcategories and associated products.
+  is_active Boolean
+  
+  /// Creation timestamp.
   created_at DateTime
   
-  /// Last update to the category information.
+  /// Last update timestamp (for cache invalidation, reindex triggers).
   updated_at DateTime
   
-  /// Category deletion time (soft delete).
+  /// Soft-delete timestamp. Null if not deleted.
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  channel shopping_mall_channels @relation(fields: [shopping_mall_channel_id], references: [id], onDelete: Cascade)
-  parent shopping_mall_channel_categories? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
+  parent shopping_mall_categories? @relation("recursive", fields: [parent_id], references: [id], onDelete: Cascade)
   
-  recursive shopping_mall_channel_categories[] @relation("recursive")
+  recursive shopping_mall_categories[] @relation("recursive")
   shopping_mall_products shopping_mall_products[]
-  shopping_mall_coupon_targets shopping_mall_coupon_targets[]
+  shopping_mall_product_categories shopping_mall_product_categories[]
   
-  @@unique([shopping_mall_channel_id, code], map: "shopping_mall_channel_categories_shopping_mall_channel_da57ae32")
-  @@index([parent_id])
-  @@index([display_order])
+  @@unique([parent_id, name_ko])
+  @@unique([parent_id, name_en])
+  @@index([parent_id, display_order])
 }
 
-/// Stores configuration blob(s) for channels or global use (e.g. feature
-/// flags, legal text, social links, settings). Each config row may be
-/// targeted at a channel, be global, or serve different configuration
-/// classes. Version-managed by snapshots for audit and recovery.
+/// System configuration key-value store for all dynamic runtime settings and
+/// feature toggles. Managed directly by platform admins via API or
+/// dashboard. Every config is uniquely identified by a (key, scope) pair,
+/// supports value typing for safe retrieval, and audit trails for changes.
+/// Used for feature flags, 3rd party credentials, rate limits, operational
+/// switches, and critical platform customizations. No cross-domain
+/// dependencies. {@link shopping_mall_system_configs.id}.
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model shopping_mall_configurations {
+model shopping_mall_system_configs {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Optional FK channel scope for this configuration. If null, applies
-  /// globally or to all channels.
-  shopping_mall_channel_id String?
+  /// System-wide unique config key (case-insensitive, e.g. 'enable_payments',
+  /// 'max_cart_size').
+  config_key String
   
-  /// Business-level code or category for this configuration (e.g.,
-  /// 'feature_flag_shipping', 'legal_policy_en').
-  key String
+  /// Config scope (e.g., 'global', 'payment', 'product', 'review').
+  /// Modularizes config space. Required for namespacing.
+  config_scope String
   
-  /// The configuration blob; may be JSON, text, or rendered markdown/HTML,
-  /// etc. Format varies by key.
-  value String
+  /// Stored value type for this config (e.g., 'string', 'int', 'boolean',
+  /// 'json'). Used for proper dynamic retrieval.
+  value_type String
   
-  /// Revision number for the configuration. Incremented with each new
-  /// snapshot/version.
-  revision Int
+  /// String value for configs whose data type is string. Nullable for
+  /// non-string/configs.
+  string_value String?
   
-  /// Description of the setting's business meaning.
-  description String?
+  /// Int value for configs whose data type is integer. Nullable for
+  /// non-integer/configs.
+  int_value Int?
   
-  /// Configuration row creation time.
+  /// Double value for configs whose data type is double (e.g. percentages,
+  /// rates). Nullable for non-double/configs.
+  double_value Float?
+  
+  /// Boolean value for configs whose data type is boolean or feature-toggle.
+  /// Nullable for non-boolean/configs.
+  boolean_value Boolean?
+  
+  /// JSON-encoded string for configs with structured data. Nullable for
+  /// non-json/configs.
+  json_value String?
+  
+  /// Creation timestamp.
   created_at DateTime
   
-  /// Last update time of this configuration value.
+  /// Last update timestamp.
   updated_at DateTime
   
-  /// Soft deletion time for the configuration row.
+  /// Soft-delete timestamp. Null if not deleted.
   deleted_at DateTime?
   
   //----
   // RELATIONS
   //----
-  channel shopping_mall_channels? @relation(fields: [shopping_mall_channel_id], references: [id], onDelete: Cascade)
-  
-  shopping_mall_channel_configuration_snapshots shopping_mall_channel_configuration_snapshots[]
-  
-  @@unique([shopping_mall_channel_id, key])
-  @@index([key])
+  @@unique([config_key, config_scope])
+  @@index([config_scope])
 }
 
-/// Append-only historical preservation of all configuration changes for
-/// channel/global configuration records. Used to audit, rollback, or prove
-/// compliance for configuration events. Each snapshot references the
-/// configuration, storing its previous state, revision, and change timing.
-/// Immutable after insert.
+/// Global platform-wide settings. Used for static-but-editable metadata
+/// (site title, description, support info), branding, and legal policies.
+/// Not as dynamic as configs—edited via admin and rarely changed. Acts as
+/// reference for platform-wide UI/SEO/meta/branding, not for runtime
+/// toggles. Directly editable only by admins. No business or domain
+/// dependencies. {@link shopping_mall_platform_settings.id}.
 ///
 /// @namespace Systematic
 /// @author AutoBE - https://github.com/wrtnlabs/autobe
-model shopping_mall_channel_configuration_snapshots {
+model shopping_mall_platform_settings {
   //----
   // COLUMNS
   //----
   /// Primary Key.
   id String @id
   
-  /// Target configuration whose state was snapshotted. {@link
-  /// shopping_mall_configurations.id}.
-  shopping_mall_configuration_id String
+  /// Platform/site title for Korean version.
+  site_title_ko String
   
-  /// The revision number when this snapshot was taken (immutable for
-  /// historical record).
-  revision Int
+  /// Platform/site title for English version.
+  site_title_en String
   
-  /// Business configuration key being snapshotted, redundant for full history
-  /// traceability.
-  key String
+  /// Platform/site description for Korean version, used for SEO and UI.
+  site_description_ko String?
   
-  /// Configuration value (blob/text/JSON) at the time of this snapshot.
-  value String
+  /// Platform/site description for English version, used for SEO and UI.
+  site_description_en String?
   
-  /// Snapshot creation time (point of version preservation).
+  /// Customer support email address.
+  support_email String?
+  
+  /// Customer support phone number (for display in UI/policy).
+  support_phone String?
+  
+  /// Public URI to primary branding logo image file.
+  branding_logo_uri String?
+  
+  /// URI to privacy policy legal document (public).
+  privacy_policy_uri String?
+  
+  /// URI to terms of service legal document (public).
+  terms_of_service_uri String?
+  
+  /// Creation timestamp.
   created_at DateTime
   
-  //----
-  // RELATIONS
-  //----
-  configuration shopping_mall_configurations @relation(fields: [shopping_mall_configuration_id], references: [id], onDelete: Cascade)
+  /// Last update timestamp.
+  updated_at DateTime
   
-  @@unique([shopping_mall_configuration_id, revision], map: "shopping_mall_channel_configuration_snapshots_shopping_9a1a9a92")
-  @@index([created_at])
+  /// Soft-delete timestamp. Null if not deleted.
+  deleted_at DateTime?
 }

@@ -7,87 +7,132 @@ import { MyGlobal } from "../MyGlobal";
 import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-import { IShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallShipment";
-import { IPageIShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageIShoppingMallShipment";
+import { IShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallOrderShipment";
+import { IPageIShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageIShoppingMallOrderShipment";
 import { IPage } from "@ORGANIZATION/PROJECT-api/lib/structures/IPage";
 import { SellerPayload } from "../decorators/payload/SellerPayload";
 
 export async function patchShoppingMallSellerOrdersOrderIdShipments(props: {
   seller: SellerPayload;
   orderId: string & tags.Format<"uuid">;
-  body: IShoppingMallShipment.IRequest;
-}): Promise<IPageIShoppingMallShipment.ISummary> {
+  body: IShoppingMallOrderShipment.IRequest;
+}): Promise<IPageIShoppingMallOrderShipment> {
   const { seller, orderId, body } = props;
 
-  // Pagination/defaults
-  const page = body.page ?? 1;
-  const limit = body.limit ?? 20;
-  const skip = (page - 1) * limit;
-
-  // Authorization check: seller must have an order item in this order
-  const orderItem = await MyGlobal.prisma.shopping_mall_order_items.findFirst({
-    where: {
-      shopping_mall_order_id: orderId,
-      shopping_mall_seller_id: seller.id,
-    },
-    select: { id: true },
+  // Authorization: ensure order exists and is linked to this seller
+  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
+    where: { id: orderId, deleted_at: null },
+    select: { id: true, shopping_mall_seller_id: true },
   });
-  if (!orderItem) {
+  if (order === null) {
+    throw new HttpException("Order not found", 404);
+  }
+  if (order.shopping_mall_seller_id !== seller.id) {
     throw new HttpException(
-      "Unauthorized: This order has no shipments for your seller account",
+      "You are not authorized to access this order's shipments",
       403,
     );
   }
 
-  // Dynamic where clause construction for shipment filtering
-  const createdAtFilter =
-    body.created_from !== undefined && body.created_from !== null
-      ? body.created_to !== undefined && body.created_to !== null
-        ? { gte: body.created_from, lte: body.created_to }
-        : { gte: body.created_from }
-      : body.created_to !== undefined && body.created_to !== null
-        ? { lte: body.created_to }
-        : undefined;
-
-  const where = {
+  // Build where clause from filter parameters
+  const where: Record<string, any> = {
     shopping_mall_order_id: orderId,
-    shopping_mall_seller_id: seller.id,
     deleted_at: null,
-    ...(body.status !== undefined && { status: body.status }),
-    ...(body.shipment_code !== undefined && {
-      shipment_code: body.shipment_code,
-    }),
-    ...(createdAtFilter !== undefined && { created_at: createdAtFilter }),
+    ...(body.status !== undefined &&
+      body.status !== null && { status: body.status }),
+    ...(body.carrier !== undefined &&
+      body.carrier !== null && { carrier: body.carrier }),
+    ...(body.tracking_number !== undefined &&
+      body.tracking_number !== null && {
+        tracking_number: { contains: body.tracking_number },
+      }),
   };
 
-  const [rows, total] = await Promise.all([
-    MyGlobal.prisma.shopping_mall_shipments.findMany({
+  // Date range filters (created_at)
+  if (
+    (body.created_from !== undefined && body.created_from !== null) ||
+    (body.created_to !== undefined && body.created_to !== null)
+  ) {
+    where.created_at = {};
+    if (body.created_from !== undefined && body.created_from !== null) {
+      where.created_at.gte = body.created_from;
+    }
+    if (body.created_to !== undefined && body.created_to !== null) {
+      where.created_at.lte = body.created_to;
+    }
+  }
+  // Date range filters (dispatched_at)
+  if (
+    (body.dispatched_from !== undefined && body.dispatched_from !== null) ||
+    (body.dispatched_to !== undefined && body.dispatched_to !== null)
+  ) {
+    where.dispatched_at = {};
+    if (body.dispatched_from !== undefined && body.dispatched_from !== null) {
+      where.dispatched_at.gte = body.dispatched_from;
+    }
+    if (body.dispatched_to !== undefined && body.dispatched_to !== null) {
+      where.dispatched_at.lte = body.dispatched_to;
+    }
+  }
+  // Date range filters (delivered_at)
+  if (
+    (body.delivered_from !== undefined && body.delivered_from !== null) ||
+    (body.delivered_to !== undefined && body.delivered_to !== null)
+  ) {
+    where.delivered_at = {};
+    if (body.delivered_from !== undefined && body.delivered_from !== null) {
+      where.delivered_at.gte = body.delivered_from;
+    }
+    if (body.delivered_to !== undefined && body.delivered_to !== null) {
+      where.delivered_at.lte = body.delivered_to;
+    }
+  }
+
+  // Sorting
+  const allowedSortFields = ["created_at", "dispatched_at", "delivered_at"];
+  const sort_by =
+    body.sort_by !== undefined &&
+    body.sort_by !== null &&
+    allowedSortFields.includes(body.sort_by)
+      ? body.sort_by
+      : "created_at";
+  const sort_order = body.sort_order === "asc" ? "asc" : "desc";
+
+  // Pagination
+  const page = body.page ?? 1;
+  const limit = body.limit ?? 20;
+  const skip = (page - 1) * limit;
+
+  // Fetch total count and paged data in parallel
+  const [total, items] = await Promise.all([
+    MyGlobal.prisma.shopping_mall_order_shipments.count({ where }),
+    MyGlobal.prisma.shopping_mall_order_shipments.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy: { [sort_by]: sort_order },
       skip,
       take: limit,
     }),
-    MyGlobal.prisma.shopping_mall_shipments.count({ where }),
   ]);
 
-  const data = rows.map((row) => ({
-    id: row.id,
-    order_id: row.shopping_mall_order_id,
-    seller_id: row.shopping_mall_seller_id,
-    shipment_code: row.shipment_code,
-    external_tracking_number: row.external_tracking_number ?? undefined,
-    status: row.status,
-    carrier: row.carrier ?? undefined,
-    requested_at: row.requested_at
-      ? toISOStringSafe(row.requested_at)
+  // Map to IShoppingMallOrderShipment
+  const data = items.map((s) => ({
+    id: s.id,
+    shopping_mall_order_id: s.shopping_mall_order_id,
+    shipment_number: s.shipment_number,
+    carrier: s.carrier,
+    tracking_number:
+      s.tracking_number === null || s.tracking_number === undefined
+        ? undefined
+        : s.tracking_number,
+    status: s.status,
+    dispatched_at: s.dispatched_at
+      ? toISOStringSafe(s.dispatched_at)
       : undefined,
-    shipped_at: row.shipped_at ? toISOStringSafe(row.shipped_at) : undefined,
-    delivered_at: row.delivered_at
-      ? toISOStringSafe(row.delivered_at)
-      : undefined,
-    created_at: toISOStringSafe(row.created_at),
-    updated_at: toISOStringSafe(row.updated_at),
-    deleted_at: row.deleted_at ? toISOStringSafe(row.deleted_at) : undefined,
+    delivered_at: s.delivered_at ? toISOStringSafe(s.delivered_at) : undefined,
+    remark: s.remark === null || s.remark === undefined ? undefined : s.remark,
+    created_at: toISOStringSafe(s.created_at),
+    updated_at: toISOStringSafe(s.updated_at),
+    deleted_at: s.deleted_at ? toISOStringSafe(s.deleted_at) : undefined,
   }));
 
   return {

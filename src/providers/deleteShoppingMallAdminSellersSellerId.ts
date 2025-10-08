@@ -13,22 +13,41 @@ export async function deleteShoppingMallAdminSellersSellerId(props: {
   admin: AdminPayload;
   sellerId: string & tags.Format<"uuid">;
 }): Promise<void> {
-  const now: string & tags.Format<"date-time"> = toISOStringSafe(new Date());
-  const seller = await MyGlobal.prisma.shopping_mall_sellers.findFirst({
+  // 1. Block if seller has any active/pending orders.
+  // Define terminal statuses. Assume 'cancelled' and 'delivered' as terminal.
+  const terminalStatuses = ["cancelled", "delivered"];
+  const openOrder = await MyGlobal.prisma.shopping_mall_orders.findFirst({
     where: {
-      id: props.sellerId,
+      shopping_mall_seller_id: props.sellerId,
+      status: {
+        notIn: terminalStatuses,
+      },
       deleted_at: null,
     },
+    select: { id: true },
   });
-  if (!seller) {
-    throw new HttpException("Seller does not exist or is already deleted", 404);
+  if (openOrder) {
+    throw new HttpException(
+      "Cannot delete seller: seller has active or pending order obligations.",
+      409,
+    );
   }
-  await MyGlobal.prisma.shopping_mall_sellers.update({
-    where: {
-      id: props.sellerId,
-    },
+
+  // 2. Perform hard delete: use delete not update. Throws 404 if not found.
+  await MyGlobal.prisma.shopping_mall_sellers.delete({
+    where: { id: props.sellerId },
+  });
+
+  // 3. Insert audit log of this admin-performed action (to action logs table).
+  await MyGlobal.prisma.shopping_mall_admin_action_logs.create({
     data: {
-      deleted_at: now,
+      id: v4(),
+      shopping_mall_admin_id: props.admin.id,
+      affected_seller_id: props.sellerId,
+      action_type: "erase",
+      action_reason: "Permanently deleted seller account via admin operation.",
+      domain: "seller",
+      created_at: toISOStringSafe(new Date()),
     },
   });
 }

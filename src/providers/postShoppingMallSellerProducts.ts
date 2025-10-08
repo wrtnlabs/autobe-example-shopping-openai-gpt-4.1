@@ -15,57 +15,72 @@ export async function postShoppingMallSellerProducts(props: {
   body: IShoppingMallProduct.ICreate;
 }): Promise<IShoppingMallProduct> {
   const { seller, body } = props;
-  // Authorization: only allow seller to create product for themselves
+
+  // Validate category exists and is active
+  const category = await MyGlobal.prisma.shopping_mall_categories.findFirst({
+    where: {
+      id: body.shopping_mall_category_id,
+      deleted_at: null,
+      is_active: true,
+    },
+  });
+  if (!category) {
+    throw new HttpException("Invalid or inactive category.", 404);
+  }
+
+  // Validate only self-listing
   if (body.shopping_mall_seller_id !== seller.id) {
     throw new HttpException(
-      "Forbidden: You cannot create a product for another seller.",
+      "You may only list products under your own seller id.",
       403,
     );
   }
 
-  // Uniqueness: no duplicate product code for this seller
+  // Check uniqueness of name for this seller (excluding deleted)
   const existing = await MyGlobal.prisma.shopping_mall_products.findFirst({
     where: {
-      shopping_mall_seller_id: body.shopping_mall_seller_id,
-      code: body.code,
+      shopping_mall_seller_id: seller.id,
+      name: body.name,
       deleted_at: null,
     },
   });
   if (existing) {
-    throw new HttpException("Duplicate product code for this seller.", 409);
+    throw new HttpException(
+      "Product name already exists for this seller.",
+      409,
+    );
   }
 
+  // Prepare timestamps
   const now = toISOStringSafe(new Date());
-  const created = await MyGlobal.prisma.shopping_mall_products.create({
+
+  // Create product
+  const product = await MyGlobal.prisma.shopping_mall_products.create({
     data: {
       id: v4(),
-      shopping_mall_seller_id: body.shopping_mall_seller_id,
-      shopping_mall_channel_id: body.shopping_mall_channel_id,
-      shopping_mall_section_id: body.shopping_mall_section_id,
+      shopping_mall_seller_id: seller.id,
       shopping_mall_category_id: body.shopping_mall_category_id,
-      code: body.code,
       name: body.name,
-      status: body.status,
-      business_status: body.business_status,
+      description: body.description,
+      is_active: body.is_active,
+      main_image_url: body.main_image_url ?? undefined,
       created_at: now,
       updated_at: now,
       deleted_at: null,
     },
   });
+
   return {
-    id: created.id,
-    shopping_mall_seller_id: created.shopping_mall_seller_id,
-    shopping_mall_channel_id: created.shopping_mall_channel_id,
-    shopping_mall_section_id: created.shopping_mall_section_id,
-    shopping_mall_category_id: created.shopping_mall_category_id,
-    code: created.code,
-    name: created.name,
-    status: created.status,
-    business_status: created.business_status,
-    created_at: toISOStringSafe(created.created_at),
-    updated_at: toISOStringSafe(created.updated_at),
-    deleted_at: created.deleted_at
-      ? toISOStringSafe(created.deleted_at)
-      : undefined,
+    id: product.id,
+    name: product.name,
+    description: product.description,
+    is_active: product.is_active,
+    main_image_url: product.main_image_url ?? undefined,
+    created_at: toISOStringSafe(product.created_at),
+    updated_at: toISOStringSafe(product.updated_at),
+    deleted_at:
+      product.deleted_at !== null && product.deleted_at !== undefined
+        ? toISOStringSafe(product.deleted_at)
+        : undefined,
   };
 }

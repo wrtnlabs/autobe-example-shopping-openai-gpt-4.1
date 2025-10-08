@@ -8,36 +8,58 @@ import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
 import { IShoppingMallCart } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallCart";
+import { IShoppingMallCartItem } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallCartItem";
 import { CustomerPayload } from "../decorators/payload/CustomerPayload";
 
 export async function getShoppingMallCustomerCartsCartId(props: {
   customer: CustomerPayload;
   cartId: string & tags.Format<"uuid">;
 }): Promise<IShoppingMallCart> {
-  // Find cart with matching ID, not soft-deleted.
-  const cart = await MyGlobal.prisma.shopping_mall_carts.findFirst({
-    where: {
-      id: props.cartId,
-      deleted_at: null,
+  // Fetch cart by id; schema does not provide deleted_at field
+  const cart = await MyGlobal.prisma.shopping_mall_carts.findUnique({
+    where: { id: props.cartId },
+    select: {
+      id: true,
+      shopping_mall_customer_id: true,
+      created_at: true,
+      updated_at: true,
     },
   });
-  if (!cart) throw new HttpException("Cart not found", 404);
-
-  // Ownership enforcement: ensure customer owns the cart
-  if (cart.shopping_mall_customer_id !== props.customer.id) {
-    throw new HttpException("Forbidden: You do not own this cart", 403);
+  if (!cart) {
+    throw new HttpException("Cart not found", 404);
   }
-
+  if (cart.shopping_mall_customer_id !== props.customer.id) {
+    throw new HttpException("Forbidden: Not your cart.", 403);
+  }
+  // Fetch cart items for this cart
+  const items = await MyGlobal.prisma.shopping_mall_cart_items.findMany({
+    where: { shopping_mall_cart_id: props.cartId },
+    select: {
+      id: true,
+      shopping_mall_cart_id: true,
+      shopping_mall_product_sku_id: true,
+      quantity: true,
+      unit_price_snapshot: true,
+      created_at: true,
+      updated_at: true,
+    },
+  });
   return {
     id: cart.id,
     shopping_mall_customer_id: cart.shopping_mall_customer_id,
-    shopping_mall_channel_id: cart.shopping_mall_channel_id,
-    shopping_mall_section_id: cart.shopping_mall_section_id,
-    source: cart.source,
-    status: cart.status,
-    expires_at: cart.expires_at ? toISOStringSafe(cart.expires_at) : undefined,
     created_at: toISOStringSafe(cart.created_at),
     updated_at: toISOStringSafe(cart.updated_at),
-    deleted_at: cart.deleted_at ? toISOStringSafe(cart.deleted_at) : undefined,
+    cart_items:
+      items.length > 0
+        ? items.map((item) => ({
+            id: item.id,
+            shopping_mall_cart_id: item.shopping_mall_cart_id,
+            shopping_mall_product_sku_id: item.shopping_mall_product_sku_id,
+            quantity: item.quantity,
+            unit_price_snapshot: item.unit_price_snapshot,
+            created_at: toISOStringSafe(item.created_at),
+            updated_at: toISOStringSafe(item.updated_at),
+          }))
+        : undefined,
   };
 }

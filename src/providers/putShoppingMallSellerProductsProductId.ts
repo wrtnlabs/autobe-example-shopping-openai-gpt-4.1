@@ -15,71 +15,95 @@ export async function putShoppingMallSellerProductsProductId(props: {
   productId: string & tags.Format<"uuid">;
   body: IShoppingMallProduct.IUpdate;
 }): Promise<IShoppingMallProduct> {
-  // 1. Authorization: product must exist for this seller, not deleted
+  const { seller, productId, body } = props;
+  // 1. Fetch product & ownership verification
   const product = await MyGlobal.prisma.shopping_mall_products.findFirst({
     where: {
-      id: props.productId,
-      shopping_mall_seller_id: props.seller.id,
+      id: productId,
+      shopping_mall_seller_id: seller.id,
       deleted_at: null,
     },
   });
   if (!product) {
-    throw new HttpException(
-      "Product not found or not owned by this seller",
-      403,
-    );
+    throw new HttpException("Product not found or access denied", 404);
   }
 
-  // 2. Update fields (only updatable) + touch updated_at
-  const now = toISOStringSafe(new Date());
-  const updated = await MyGlobal.prisma.shopping_mall_products.update({
-    where: { id: props.productId },
-    data: {
-      shopping_mall_channel_id:
-        props.body.shopping_mall_channel_id ?? undefined,
-      shopping_mall_section_id:
-        props.body.shopping_mall_section_id ?? undefined,
-      shopping_mall_category_id:
-        props.body.shopping_mall_category_id ?? undefined,
-      code: props.body.code ?? undefined,
-      name: props.body.name ?? undefined,
-      status: props.body.status ?? undefined,
-      business_status: props.body.business_status ?? undefined,
-      updated_at: now,
-    },
-  });
-
-  // 3. Snapshot: get latest version and increment, create snapshot
-  const maxVersionRow =
-    await MyGlobal.prisma.shopping_mall_product_snapshots.findFirst({
-      where: { shopping_mall_product_id: props.productId },
-      orderBy: { snapshot_version: "desc" },
-      select: { snapshot_version: true },
+  // 2. If updating name, check name uniqueness (case-insensitive within seller)
+  if (body.name !== undefined) {
+    const duplicate = await MyGlobal.prisma.shopping_mall_products.findFirst({
+      where: {
+        shopping_mall_seller_id: seller.id,
+        id: { not: productId },
+        name: body.name,
+        deleted_at: null,
+      },
     });
-  const newVersion = (maxVersionRow?.snapshot_version ?? 0) + 1;
-  await MyGlobal.prisma.shopping_mall_product_snapshots.create({
-    data: {
-      id: v4() as string & tags.Format<"uuid">,
-      shopping_mall_product_id: props.productId,
-      snapshot_version: newVersion,
-      data_json: JSON.stringify(updated),
-      created_at: now,
-    },
+    if (duplicate) {
+      throw new HttpException(
+        "Product name must be unique within seller catalog",
+        409,
+      );
+    }
+  }
+
+  // 3. If updating category, validate existence, activity, and leaf status
+  if (body.shopping_mall_category_id !== undefined) {
+    const category = await MyGlobal.prisma.shopping_mall_categories.findFirst({
+      where: {
+        id: body.shopping_mall_category_id,
+        is_active: true,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+    if (!category) {
+      throw new HttpException(
+        "Target category does not exist or is not active",
+        400,
+      );
+    }
+    // check for children (leaf status)
+    const hasChildren =
+      await MyGlobal.prisma.shopping_mall_categories.findFirst({
+        where: { parent_id: body.shopping_mall_category_id, deleted_at: null },
+      });
+    if (hasChildren) {
+      throw new HttpException(
+        "Category must be a leaf (no subcategories)",
+        400,
+      );
+    }
+  }
+
+  // 4. Build update payload
+  const now = toISOStringSafe(new Date());
+  const update: Record<string, unknown> = {
+    updated_at: now,
+  };
+  if (body.name !== undefined) update["name"] = body.name;
+  if (body.description !== undefined) update["description"] = body.description;
+  if (body.is_active !== undefined) update["is_active"] = body.is_active;
+  if (body.shopping_mall_category_id !== undefined)
+    update["shopping_mall_category_id"] = body.shopping_mall_category_id;
+  if (body.main_image_url !== undefined)
+    update["main_image_url"] = body.main_image_url;
+
+  // 5. Update DB
+  const updated = await MyGlobal.prisma.shopping_mall_products.update({
+    where: { id: productId },
+    data: update,
   });
 
-  // 4. Return updated product, mapped to IShoppingMallProduct
+  // 6. Return response (map to DTO)
   return {
     id: updated.id,
-    shopping_mall_seller_id: updated.shopping_mall_seller_id,
-    shopping_mall_channel_id: updated.shopping_mall_channel_id,
-    shopping_mall_section_id: updated.shopping_mall_section_id,
-    shopping_mall_category_id: updated.shopping_mall_category_id,
-    code: updated.code,
     name: updated.name,
-    status: updated.status,
-    business_status: updated.business_status,
+    description: updated.description,
+    is_active: updated.is_active,
+    main_image_url:
+      updated.main_image_url === null ? undefined : updated.main_image_url,
     created_at: toISOStringSafe(updated.created_at),
-    updated_at: now,
+    updated_at: toISOStringSafe(updated.updated_at),
     deleted_at: updated.deleted_at
       ? toISOStringSafe(updated.deleted_at)
       : undefined,

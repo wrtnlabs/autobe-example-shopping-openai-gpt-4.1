@@ -1,0 +1,282 @@
+/// Historical, immutable snapshot of order data at key customer service
+/// milestones for audit, compliance, and reporting. Stores key attributes
+/// from the original order at the time of notable customer service events
+/// (e.g., cancellation, refund, dispute) to support investigation,
+/// reconstruct timelines, and enforce retention policies. Related to {@link
+/// shopping_mall_orders}.
+///
+/// @namespace CustomerService
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_order_histories {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Belonged order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Type of the customer service event prompting the snapshot (e.g.,
+  /// 'cancellation', 'refund', 'escalation', 'appeal').
+  snapshot_type String
+  
+  /// Order status at the time of the snapshot (copied for audit context).
+  order_status String
+  
+  /// Order amount at the time of event (may include applied
+  /// refunds/cancellation).
+  order_total Float
+  
+  /// Business reason or comment associated with this history entry (e.g.,
+  /// system-generated, admin note, case user update).
+  snapshot_reason String?
+  
+  /// Timestamp of the snapshot creation for auditing.
+  created_at DateTime
+  
+  /// Soft delete. Indicates record logically removed for data retention, but
+  /// not physically deleted.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_customer_service_events shopping_mall_customer_service_events[]
+  
+  @@unique([shopping_mall_order_id, snapshot_type, created_at], map: "shopping_mall_order_histories_shopping_mall_order_id_s_44eb7683")
+  @@index([snapshot_type])
+  @@index([shopping_mall_order_id, created_at], map: "shopping_mall_order_histories_shopping_mall_order_id_c_c277fa3d")
+}
+
+/// Timeline log of customer service activities related to orders,
+/// escalations, or appeals. Records discrete events (e.g., case created,
+/// investigation, communication, admin action) in sequence for audit,
+/// reporting, and rebuilding the complete service journey. Related to one of
+/// shopping_mall_order_histories, shopping_mall_escalations, or
+/// shopping_mall_appeals depending on event context.
+///
+/// @namespace CustomerService
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_customer_service_events {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Related order history's {@link shopping_mall_order_histories.id}, if
+  /// event is directly tied to order audit.
+  order_history_id String?
+  
+  /// Related escalation's {@link shopping_mall_escalations.id}, if event is
+  /// part of an escalation process.
+  shopping_mall_escalation_id String?
+  
+  /// Related appeal's {@link shopping_mall_appeals.id}, if event is part of an
+  /// appeal process.
+  shopping_mall_appeal_id String?
+  
+  /// Actor customer's {@link shopping_mall_customers.id}, if the event was
+  /// performed by a customer.
+  actor_customer_id String?
+  
+  /// Actor seller's {@link shopping_mall_sellers.id}, if the event was
+  /// performed by a seller.
+  actor_seller_id String?
+  
+  /// Actor admin's {@link shopping_mall_admins.id}, if the event was performed
+  /// by an admin.
+  actor_admin_id String?
+  
+  /// Type/category of the service event (e.g., 'case-open', 'message',
+  /// 'investigation', 'resolution', 'appeal-filed', etc).
+  event_type String
+  
+  /// Status of this event (e.g., in-progress, resolved, pending, escalated).
+  /// Reflects business workflow.
+  event_status String
+  
+  /// Business comment or event details. Free text, may contain user/admin
+  /// message or reason for audit.
+  event_comment String?
+  
+  /// Timestamp of the event creation for timeline ordering and reporting.
+  created_at DateTime
+  
+  /// Soft delete. Indicates record logically removed for data retention
+  /// purposes.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  orderHistory shopping_mall_order_histories? @relation(fields: [order_history_id], references: [id], onDelete: Cascade)
+  escalation shopping_mall_escalations? @relation(fields: [shopping_mall_escalation_id], references: [id], onDelete: Cascade)
+  appeal shopping_mall_appeals? @relation(fields: [shopping_mall_appeal_id], references: [id], onDelete: Cascade)
+  actorCustomer shopping_mall_customers? @relation(fields: [actor_customer_id], references: [id], onDelete: Cascade)
+  actorSeller shopping_mall_sellers? @relation(fields: [actor_seller_id], references: [id], onDelete: Cascade)
+  actorAdmin shopping_mall_admins? @relation(fields: [actor_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([order_history_id])
+  @@index([shopping_mall_escalation_id], map: "shopping_mall_customer_service_events_shopping_mall_es_b66a7d18")
+  @@index([shopping_mall_appeal_id], map: "shopping_mall_customer_service_events_shopping_mall_ap_c5c590b2")
+  @@index([actor_customer_id])
+  @@index([actor_seller_id])
+  @@index([actor_admin_id])
+  
+  @@unique([created_at, event_type])
+  @@index([event_type])
+  @@index([created_at])
+  @@index([event_status])
+}
+
+/// Primary case file for escalated customer service requests, such as
+/// disputes, complex complaints, or cases requiring admin/special handling.
+/// Escalation is opened when regular service or user workflow is
+/// insufficient to resolve an issue. Tied to specific orders and one or more
+/// actors (customer, seller, admin) with independent case lifecycle for
+/// searching, filtering, and resolution tracking.
+///
+/// @namespace CustomerService
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_escalations {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Subject order's {@link shopping_mall_orders.id}.
+  shopping_mall_order_id String
+  
+  /// Initiator customer's {@link shopping_mall_customers.id}, if case opened
+  /// by customer.
+  initiator_customer_id String?
+  
+  /// Initiator seller's {@link shopping_mall_sellers.id}, if case opened by
+  /// seller.
+  initiator_seller_id String?
+  
+  /// Assigned admin's {@link shopping_mall_admins.id} overseeing/owning this
+  /// escalation.
+  assigned_admin_id String?
+  
+  /// Type or reason for the escalation (e.g., 'payment dispute', 'order not
+  /// received', 'refund delay').
+  escalation_type String
+  
+  /// Current status of the escalation case (e.g., pending, in-review,
+  /// resolved, closed, escalated-to-admin).
+  escalation_status String
+  
+  /// Outcome or method of case closure/resolution (e.g., 'refund-issued',
+  /// 'denied', 'order-resent', 'goodwill-credit').
+  resolution_type String?
+  
+  /// Comment or explanation about resolution, for audit/postmortem/review.
+  resolution_comment String?
+  
+  /// Timestamp of case creation.
+  created_at DateTime
+  
+  /// Timestamp of last update in escalation case for workflow tracking.
+  updated_at DateTime
+  
+  /// Soft delete. Indicates case logically removed for data retention.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  order shopping_mall_orders @relation(fields: [shopping_mall_order_id], references: [id], onDelete: Cascade)
+  initiatorCustomer shopping_mall_customers? @relation(fields: [initiator_customer_id], references: [id], onDelete: Cascade)
+  initiatorSeller shopping_mall_sellers? @relation(fields: [initiator_seller_id], references: [id], onDelete: Cascade)
+  assignedAdmin shopping_mall_admins? @relation(fields: [assigned_admin_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_customer_service_events shopping_mall_customer_service_events[]
+  shopping_mall_appeals shopping_mall_appeals[]
+  
+  @@index([initiator_customer_id])
+  @@index([initiator_seller_id])
+  
+  @@unique([shopping_mall_order_id, escalation_type, created_at], map: "shopping_mall_escalations_shopping_mall_order_id_escal_4e25be57")
+  @@index([escalation_status])
+  @@index([created_at])
+  @@index([assigned_admin_id])
+}
+
+/// Primary record for appeals on escalated customer service cases or
+/// admin/seller actions already taken. Represents user's attempt to seek
+/// additional review or override of prior decision. Linked to previous
+/// escalation, relevant actors, and independent case lifecycle. Allows
+/// independent searching, filtering, and tracking for reporting and
+/// compliance.
+///
+/// @namespace CustomerService
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_appeals {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Related escalation's {@link shopping_mall_escalations.id} being appealed.
+  escalation_id String
+  
+  /// Appellant customer's {@link shopping_mall_customers.id}, if a customer
+  /// files the appeal.
+  appellant_customer_id String?
+  
+  /// Appellant seller's {@link shopping_mall_sellers.id}, if a seller files
+  /// the appeal.
+  appellant_seller_id String?
+  
+  /// Admin's {@link shopping_mall_admins.id} reviewing/owning this appeal.
+  reviewing_admin_id String?
+  
+  /// Type or nature of the appeal (e.g., 'refund denied', 'order closure
+  /// challenge', 'policy review request').
+  appeal_type String
+  
+  /// Current status of the appeal (e.g., pending, under review, resolved,
+  /// dismissed, accepted, rejected).
+  appeal_status String
+  
+  /// Outcome/method of appeal closure or review (e.g., 'refund-granted',
+  /// 'upheld-denial', 'manual override').
+  resolution_type String?
+  
+  /// Commentary on final appeal result, admin reason, or outcome note.
+  resolution_comment String?
+  
+  /// Timestamp when appeal was filed.
+  created_at DateTime
+  
+  /// Timestamp for last status update or workflow transition in appeal.
+  updated_at DateTime
+  
+  /// Soft delete. Indicates appeal logically removed for data retention policy.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  escalation shopping_mall_escalations @relation(fields: [escalation_id], references: [id], onDelete: Cascade)
+  appellantCustomer shopping_mall_customers? @relation(fields: [appellant_customer_id], references: [id], onDelete: Cascade)
+  appellantSeller shopping_mall_sellers? @relation(fields: [appellant_seller_id], references: [id], onDelete: Cascade)
+  reviewingAdmin shopping_mall_admins? @relation(fields: [reviewing_admin_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_customer_service_events shopping_mall_customer_service_events[]
+  
+  @@index([appellant_customer_id])
+  @@index([appellant_seller_id])
+  
+  @@unique([escalation_id, appeal_type, created_at])
+  @@index([appeal_status])
+  @@index([created_at])
+  @@index([reviewing_admin_id])
+}

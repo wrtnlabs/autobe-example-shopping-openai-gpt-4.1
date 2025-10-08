@@ -14,27 +14,30 @@ export async function getShoppingMallAdminSellersSellerId(props: {
   admin: AdminPayload;
   sellerId: string & tags.Format<"uuid">;
 }): Promise<IShoppingMallSeller> {
-  const seller = await MyGlobal.prisma.shopping_mall_sellers.findUnique({
-    where: { id: props.sellerId },
+  const seller = await MyGlobal.prisma.shopping_mall_sellers.findFirst({
+    where: {
+      id: props.sellerId,
+      deleted_at: null,
+    },
   });
-  if (!seller || seller.deleted_at !== null) {
+  if (!seller) {
     throw new HttpException("Seller not found", 404);
   }
+
   return {
     id: seller.id,
-    shopping_mall_customer_id: seller.shopping_mall_customer_id,
-    shopping_mall_section_id: seller.shopping_mall_section_id,
-    profile_name: seller.profile_name,
-    status: seller.status,
-    approval_at: seller.approval_at
-      ? toISOStringSafe(seller.approval_at)
-      : null,
-    kyc_status: seller.kyc_status,
+    email: seller.email,
+    business_name: seller.business_name,
+    contact_name: seller.contact_name,
+    phone: seller.phone,
+    kyc_document_uri: seller.kyc_document_uri ?? undefined,
+    approval_status: seller.approval_status,
+    business_registration_number: seller.business_registration_number,
+    email_verified: seller.email_verified,
     created_at: toISOStringSafe(seller.created_at),
     updated_at: toISOStringSafe(seller.updated_at),
-    deleted_at:
-      seller.deleted_at != null
-        ? toISOStringSafe(seller.deleted_at)
-        : undefined,
+    deleted_at: seller.deleted_at
+      ? toISOStringSafe(seller.deleted_at)
+      : undefined,
   };
 }

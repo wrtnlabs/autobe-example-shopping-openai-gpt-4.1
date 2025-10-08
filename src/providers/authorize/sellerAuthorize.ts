@@ -5,12 +5,11 @@ import { jwtAuthorize } from "./jwtAuthorize";
 import { SellerPayload } from "../../decorators/payload/SellerPayload";
 
 /**
- * Provider function for authenticating sellers by JWT and database state.
- * Ensures the account is valid, active, and not logically deleted.
+ * Authorization provider for seller role.
  *
- * @param request The HTTP request object containing headers (including JWT Authorization)
- * @returns Authenticated SellerPayload if validation passes
- * @throws ForbiddenException if not seller role, or DB state invalid
+ * @param request HTTP request object containing headers
+ * @returns SellerPayload if authenticated and authorized
+ * @throws ForbiddenException if token is invalid or seller not found/active
  */
 export async function sellerAuthorize(request: {
   headers: {
@@ -18,28 +17,19 @@ export async function sellerAuthorize(request: {
   };
 }): Promise<SellerPayload> {
   const payload: SellerPayload = jwtAuthorize({ request }) as SellerPayload;
-
   if (payload.type !== "seller") {
     throw new ForbiddenException(`You're not ${payload.type}`);
   }
-
-  // payload.id = shopping_mall_customers.id (top-level user ID)
+  // JWT payload.id = shopping_mall_sellers.id (top-level user table)
   const seller = await MyGlobal.prisma.shopping_mall_sellers.findFirst({
     where: {
-      shopping_mall_customer_id: payload.id,
+      id: payload.id,
       deleted_at: null,
-      // Seller is only valid if customer is valid as well
-      customer: {
-        deleted_at: null,
-        status: "active",
-      },
-      status: "active",
+      approval_status: "approved"
     },
   });
-
   if (seller === null) {
-    throw new ForbiddenException("You're not enrolled as an active seller");
+    throw new ForbiddenException("You're not enrolled or not an active seller");
   }
-
   return payload;
 }

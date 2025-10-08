@@ -7,99 +7,127 @@ import { MyGlobal } from "../MyGlobal";
 import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-import { IShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallShipment";
+import { IShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallOrderShipment";
 import { AdminPayload } from "../decorators/payload/AdminPayload";
 
 export async function putShoppingMallAdminOrdersOrderIdShipmentsShipmentId(props: {
   admin: AdminPayload;
   orderId: string & tags.Format<"uuid">;
   shipmentId: string & tags.Format<"uuid">;
-  body: IShoppingMallShipment.IUpdate;
-}): Promise<IShoppingMallShipment> {
-  // Find shipment (must belong to this order, not soft-deleted)
-  const shipment = await MyGlobal.prisma.shopping_mall_shipments.findFirst({
-    where: {
-      id: props.shipmentId,
-      shopping_mall_order_id: props.orderId,
-      deleted_at: null,
-    },
-  });
-  if (!shipment) throw new HttpException("Shipment not found for order", 404);
-  // Status 'delivered' or 'cancelled' are immutable for business compliance
-  const isFinal =
-    shipment.status === "delivered" || shipment.status === "cancelled";
-  if (isFinal) {
-    if (
-      props.body.status !== undefined &&
-      props.body.status !== shipment.status
-    )
+  body: IShoppingMallOrderShipment.IUpdate;
+}): Promise<IShoppingMallOrderShipment> {
+  // 1. Fetch shipment by shipmentId
+  const shipment =
+    await MyGlobal.prisma.shopping_mall_order_shipments.findUnique({
+      where: { id: props.shipmentId },
+    });
+  if (!shipment) {
+    throw new HttpException("Shipment not found", 404);
+  }
+  // 2. Verify shipment belongs to orderId
+  if (shipment.shopping_mall_order_id !== props.orderId) {
+    throw new HttpException(
+      "Shipment does not belong to the specified order",
+      403,
+    );
+  }
+  // 3. Business logic: status transition checks
+  const allowedTransitions: Record<string, string[]> = {
+    pending: ["shipped", "pending"],
+    shipped: ["delivered", "shipped"],
+    delivered: ["delivered"],
+    cancelled: ["cancelled"],
+    returned: ["returned", "delivered"],
+    out_for_delivery: ["delivered", "out_for_delivery"],
+    in_transit: ["out_for_delivery", "in_transit", "delivered"],
+  };
+  const oldStatus = shipment.status;
+  const newStatus = props.body.status;
+  if (!allowedTransitions[oldStatus]?.includes(newStatus)) {
+    throw new HttpException(
+      `Invalid status transition from ${oldStatus} to ${newStatus}`,
+      400,
+    );
+  }
+  // If updating to 'shipped', dispatched_at must exist (input or already on record)
+  if (
+    newStatus === "shipped" &&
+    !(props.body.dispatched_at ?? shipment.dispatched_at)
+  ) {
+    throw new HttpException(
+      "dispatched_at must be set when status is shipped",
+      400,
+    );
+  }
+  // If updating to 'delivered', delivered_at must exist (input or already on record), cannot deliver before shipped
+  if (newStatus === "delivered") {
+    if (!(props.body.delivered_at ?? shipment.delivered_at)) {
       throw new HttpException(
-        "Cannot change shipment status after delivered/cancelled",
+        "delivered_at must be set when status is delivered",
         400,
       );
+    }
     if (
-      props.body.shipped_at !== undefined ||
-      props.body.delivered_at !== undefined ||
-      props.body.carrier !== undefined ||
-      props.body.external_tracking_number !== undefined ||
-      props.body.requested_at !== undefined
+      !["shipped", "out_for_delivery", "in_transit", "delivered"].includes(
+        oldStatus,
+      )
     ) {
       throw new HttpException(
-        "Cannot update shipment after delivered/cancelled",
+        "Cannot mark as delivered unless already shipped",
         400,
       );
     }
   }
-  // Only allow legitimate shipment changes, skip immutable keys
+  // tracking_number required if status is shipped, delivered, out_for_delivery, in_transit
+  if (
+    ["shipped", "delivered", "out_for_delivery", "in_transit"].includes(
+      newStatus,
+    ) &&
+    !(props.body.tracking_number ?? shipment.tracking_number)
+  ) {
+    throw new HttpException("tracking_number required for this status", 400);
+  }
+  // Compose update payload
   const now = toISOStringSafe(new Date());
-  const update: Record<string, unknown> = {
-    updated_at: now,
-    ...(props.body.status !== undefined ? { status: props.body.status } : {}),
-    ...(props.body.carrier !== undefined
-      ? { carrier: props.body.carrier }
-      : {}),
-    ...(props.body.external_tracking_number !== undefined
-      ? { external_tracking_number: props.body.external_tracking_number }
-      : {}),
-    ...(props.body.requested_at !== undefined
-      ? { requested_at: props.body.requested_at ?? null }
-      : {}),
-    ...(props.body.shipped_at !== undefined
-      ? { shipped_at: props.body.shipped_at ?? null }
-      : {}),
-    ...(props.body.delivered_at !== undefined
-      ? { delivered_at: props.body.delivered_at ?? null }
-      : {}),
-  };
-  const updated = await MyGlobal.prisma.shopping_mall_shipments.update({
-    where: { id: shipment.id },
-    data: update,
+  const updated = await MyGlobal.prisma.shopping_mall_order_shipments.update({
+    where: { id: props.shipmentId },
+    data: {
+      carrier: props.body.carrier,
+      tracking_number: props.body.tracking_number ?? null,
+      status: props.body.status,
+      dispatched_at:
+        props.body.dispatched_at !== undefined
+          ? props.body.dispatched_at
+          : (shipment.dispatched_at ?? null),
+      delivered_at:
+        props.body.delivered_at !== undefined
+          ? props.body.delivered_at
+          : (shipment.delivered_at ?? null),
+      remark: props.body.remark ?? null,
+      updated_at: now,
+    },
   });
   return {
     id: updated.id,
     shopping_mall_order_id: updated.shopping_mall_order_id,
-    shopping_mall_seller_id: updated.shopping_mall_seller_id,
-    shipment_code: updated.shipment_code,
-    external_tracking_number: updated.external_tracking_number ?? undefined,
+    shipment_number: updated.shipment_number,
+    carrier: updated.carrier,
+    tracking_number: updated.tracking_number ?? undefined,
     status: updated.status,
-    carrier: updated.carrier ?? undefined,
-    requested_at:
-      updated.requested_at !== null && updated.requested_at !== undefined
-        ? toISOStringSafe(updated.requested_at)
-        : undefined,
-    shipped_at:
-      updated.shipped_at !== null && updated.shipped_at !== undefined
-        ? toISOStringSafe(updated.shipped_at)
-        : undefined,
+    dispatched_at:
+      typeof updated.dispatched_at === "object" && updated.dispatched_at != null
+        ? toISOStringSafe(updated.dispatched_at)
+        : (updated.dispatched_at ?? undefined),
     delivered_at:
-      updated.delivered_at !== null && updated.delivered_at !== undefined
+      typeof updated.delivered_at === "object" && updated.delivered_at != null
         ? toISOStringSafe(updated.delivered_at)
-        : undefined,
+        : (updated.delivered_at ?? undefined),
+    remark: updated.remark ?? undefined,
     created_at: toISOStringSafe(updated.created_at),
     updated_at: toISOStringSafe(updated.updated_at),
     deleted_at:
-      updated.deleted_at !== null && updated.deleted_at !== undefined
+      typeof updated.deleted_at === "object" && updated.deleted_at != null
         ? toISOStringSafe(updated.deleted_at)
-        : undefined,
+        : (updated.deleted_at ?? undefined),
   };
 }

@@ -15,54 +15,45 @@ export async function postShoppingMallAdminProductsProductIdOptions(props: {
   productId: string & tags.Format<"uuid">;
   body: IShoppingMallProductOption.ICreate;
 }): Promise<IShoppingMallProductOption> {
-  // 1. Verify referenced product exists and is not soft-deleted
-  const product = await MyGlobal.prisma.shopping_mall_products.findFirst({
-    where: { id: props.productId, deleted_at: null },
-    select: { id: true },
+  // Verify product existence
+  await MyGlobal.prisma.shopping_mall_products.findUniqueOrThrow({
+    where: { id: props.productId },
   });
-  if (!product) {
-    throw new HttpException("Product not found", 404);
-  }
-  // 2. Validate uniqueness of option name for this product (excluding soft-deleted)
-  const existingOption =
+
+  // Enforce uniqueness constraint for (product_id + name)
+  const duplicate =
     await MyGlobal.prisma.shopping_mall_product_options.findFirst({
       where: {
         shopping_mall_product_id: props.productId,
         name: props.body.name,
-        deleted_at: null,
       },
-      select: { id: true },
     });
-  if (existingOption) {
-    throw new HttpException("Option name already exists for this product", 409);
+  if (duplicate) {
+    throw new HttpException(
+      "Duplicate product option name for this product.",
+      409,
+    );
   }
-  // 3. Generate timestamps in ISO 8601 format
-  const now: string & tags.Format<"date-time"> = toISOStringSafe(new Date());
-  // 4. Create the product option
+
+  // Create the product option
+  const now = toISOStringSafe(new Date());
   const created = await MyGlobal.prisma.shopping_mall_product_options.create({
     data: {
       id: v4(),
       shopping_mall_product_id: props.productId,
       name: props.body.name,
-      required: props.body.required,
-      position: props.body.position,
+      display_order: props.body.display_order,
       created_at: now,
       updated_at: now,
-      deleted_at: null,
     },
   });
-  // 5. Return the full option object with ISO 8601 strings, deleted_at as undefined if null
+
   return {
     id: created.id,
     shopping_mall_product_id: created.shopping_mall_product_id,
     name: created.name,
-    required: created.required,
-    position: created.position,
+    display_order: created.display_order,
     created_at: toISOStringSafe(created.created_at),
     updated_at: toISOStringSafe(created.updated_at),
-    deleted_at:
-      created.deleted_at !== null && created.deleted_at !== undefined
-        ? toISOStringSafe(created.deleted_at)
-        : undefined,
   };
 }

@@ -7,40 +7,37 @@ import { MyGlobal } from "../MyGlobal";
 import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-import { IShoppingMallPayment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallPayment";
+import { IShoppingMallOrderPayment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallOrderPayment";
 import { AdminPayload } from "../decorators/payload/AdminPayload";
 
 export async function getShoppingMallAdminOrdersOrderIdPaymentsPaymentId(props: {
   admin: AdminPayload;
   orderId: string & tags.Format<"uuid">;
   paymentId: string & tags.Format<"uuid">;
-}): Promise<IShoppingMallPayment> {
-  const payment = await MyGlobal.prisma.shopping_mall_payments.findFirst({
+}): Promise<IShoppingMallOrderPayment> {
+  const payment = await MyGlobal.prisma.shopping_mall_order_payments.findFirst({
     where: {
       id: props.paymentId,
       shopping_mall_order_id: props.orderId,
-      deleted_at: null,
     },
   });
   if (!payment) {
-    throw new HttpException("Payment not found for given order", 404);
+    throw new HttpException("Payment not found for the specified order.", 404);
   }
   return {
     id: payment.id,
     shopping_mall_order_id: payment.shopping_mall_order_id,
-    shopping_mall_customer_id: payment.shopping_mall_customer_id,
+    order_payment_method_id: payment.order_payment_method_id,
+    payment_ref: payment.payment_ref,
     payment_type: payment.payment_type,
-    external_payment_ref: payment.external_payment_ref ?? undefined,
     status: payment.status,
-    amount: payment.amount,
+    paid_amount: payment.paid_amount,
     currency: payment.currency,
-    requested_at: toISOStringSafe(payment.requested_at),
-    confirmed_at: payment.confirmed_at
-      ? toISOStringSafe(payment.confirmed_at)
+    paid_at: payment.paid_at ? toISOStringSafe(payment.paid_at) : undefined,
+    reconciliation_at: payment.reconciliation_at
+      ? toISOStringSafe(payment.reconciliation_at)
       : undefined,
-    cancelled_at: payment.cancelled_at
-      ? toISOStringSafe(payment.cancelled_at)
-      : undefined,
+    fail_reason: payment.fail_reason ?? undefined,
     created_at: toISOStringSafe(payment.created_at),
     updated_at: toISOStringSafe(payment.updated_at),
     deleted_at: payment.deleted_at

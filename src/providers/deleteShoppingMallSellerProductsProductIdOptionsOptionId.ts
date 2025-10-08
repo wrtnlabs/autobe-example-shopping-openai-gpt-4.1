@@ -16,70 +16,83 @@ export async function deleteShoppingMallSellerProductsProductIdOptionsOptionId(p
 }): Promise<void> {
   const { seller, productId, optionId } = props;
 
-  // 1. Ensure product exists and is owned by seller
-  const product = await MyGlobal.prisma.shopping_mall_products.findFirst({
-    where: {
-      id: productId,
-      deleted_at: null,
-    },
-    select: {
-      id: true,
-      shopping_mall_seller_id: true,
-    },
-  });
-  if (!product || product.shopping_mall_seller_id !== seller.id) {
-    throw new HttpException("Product not found or unauthorized", 404);
-  }
-
-  // 2. Ensure option exists, belongs to product, not deleted
+  // 1. Validate that option exists and belongs to specified product
   const option = await MyGlobal.prisma.shopping_mall_product_options.findFirst({
     where: {
       id: optionId,
       shopping_mall_product_id: productId,
-      deleted_at: null,
     },
-    select: { id: true },
+    select: {
+      id: true,
+      shopping_mall_product_id: true,
+    },
   });
   if (!option) {
-    throw new HttpException("Option not found", 404);
+    throw new HttpException("Product option not found for given product", 404);
   }
 
-  // 3. Check if any option values exist for the option
-  const optionValues =
+  // 2. Validate that seller owns the product
+  const product = await MyGlobal.prisma.shopping_mall_products.findUnique({
+    where: {
+      id: productId,
+    },
+    select: {
+      shopping_mall_seller_id: true,
+      id: true,
+    },
+  });
+  if (!product) {
+    throw new HttpException("Product not found", 404);
+  }
+  if (product.shopping_mall_seller_id !== seller.id) {
+    throw new HttpException(
+      "Unauthorized: Only the owning seller can delete this product's options.",
+      403,
+    );
+  }
+
+  // 3. Check if this option has any option_values
+  const optionValueIds =
     await MyGlobal.prisma.shopping_mall_product_option_values.findMany({
-      where: {
-        shopping_mall_product_option_id: optionId,
-        deleted_at: null,
-      },
+      where: { shopping_mall_product_option_id: optionId },
       select: { id: true },
     });
-  if (optionValues.length > 0) {
-    // Check if any variant exists for the product (as option_values_hash cannot be decoded reliably)
-    const variant =
-      await MyGlobal.prisma.shopping_mall_product_variants.findFirst({
+  const relevantOptionValueIds = optionValueIds.map((v) => v.id);
+
+  if (relevantOptionValueIds.length > 0) {
+    // 3b. Check if any sku_option_value references these option_value IDs
+    const skuOptionInUse =
+      await MyGlobal.prisma.shopping_mall_product_sku_option_values.findFirst({
         where: {
-          shopping_mall_product_id: productId,
-          deleted_at: null,
+          shopping_mall_product_option_value_id: { in: relevantOptionValueIds },
         },
         select: { id: true },
       });
-    if (variant) {
+    if (skuOptionInUse) {
       throw new HttpException(
-        "Cannot delete option: option values are in use by product variants.",
+        "Cannot delete: Option is assigned to one or more SKUs. Remove all linked SKUs first.",
         409,
       );
     }
   }
 
-  // 4. Mark the option as deleted (soft delete)
-  const now = toISOStringSafe(new Date());
-  await MyGlobal.prisma.shopping_mall_product_options.update({
+  // 4. Hard delete the option (will also delete its option_values due to relations)
+  await MyGlobal.prisma.shopping_mall_product_options.delete({
     where: {
       id: optionId,
     },
+  });
+
+  // 5. Log the option removal for auditing
+  await MyGlobal.prisma.shopping_mall_admin_action_logs.create({
     data: {
-      deleted_at: now,
-      updated_at: now,
+      id: v4(),
+      shopping_mall_admin_id: seller.id, // Set seller.id even if technically not an "admin", for audit
+      affected_product_id: productId,
+      action_type: "delete_option",
+      action_reason: "Seller deleted product option",
+      domain: "product_option",
+      created_at: toISOStringSafe(new Date()),
     },
   });
 }

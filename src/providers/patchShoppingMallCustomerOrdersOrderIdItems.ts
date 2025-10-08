@@ -16,59 +16,109 @@ export async function patchShoppingMallCustomerOrdersOrderIdItems(props: {
   customer: CustomerPayload;
   orderId: string & tags.Format<"uuid">;
   body: IShoppingMallOrderItem.IRequest;
-}): Promise<IPageIShoppingMallOrderItem> {
-  // Authorize access: ensure the order exists, is owned by the customer, and not deleted
-  const order = await MyGlobal.prisma.shopping_mall_orders.findFirst({
-    where: {
-      id: props.orderId,
-      shopping_mall_customer_id: props.customer.id,
-      deleted_at: null,
-    },
-    select: { id: true },
+}): Promise<IPageIShoppingMallOrderItem.ISummary> {
+  const { customer, orderId, body } = props;
+
+  // 1. Find order and verify ownership
+  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
+    where: { id: orderId, deleted_at: null },
+    select: { id: true, shopping_mall_customer_id: true },
   });
-  if (!order) {
-    throw new HttpException("Order not found or access denied", 404);
-  }
+  if (!order) throw new HttpException("Order not found", 404);
+  if (order.shopping_mall_customer_id !== customer.id)
+    throw new HttpException("Forbidden: Not your order", 403);
 
-  // Paging/defaults
-  const page = props.body.page ?? 1;
-  const limit = props.body.limit ?? 20;
-  const skip = (Number(page) - 1) * Number(limit);
+  // Pagination defaults
+  const page = body.page && body.page > 0 ? body.page : 1;
+  const limit = body.limit && body.limit > 0 ? body.limit : 20;
+  const skip = (page - 1) * limit;
 
-  // Build filter
-  const where = {
-    shopping_mall_order_id: props.orderId,
+  // Build where condition
+  const where: Record<string, any> = {
+    shopping_mall_order_id: orderId,
     deleted_at: null,
-    ...(props.body.status !== undefined && { status: props.body.status }),
-    ...(props.body.product_id !== undefined && {
-      shopping_mall_product_id: props.body.product_id,
-    }),
+    ...(body.status !== undefined &&
+      body.status !== null && { refund_status: body.status }),
+    ...(body.sku_code !== undefined &&
+      body.sku_code !== null && { sku_code: body.sku_code }),
+    ...(body.product_name !== undefined &&
+      body.product_name !== null && {
+        item_name: { contains: body.product_name },
+      }),
+    ...(body.search !== undefined &&
+      body.search !== null && {
+        OR: [
+          { item_name: { contains: body.search } },
+          { sku_code: { contains: body.search } },
+        ],
+      }),
   };
 
-  // Query and count
-  const [items, total] = await Promise.all([
+  // Sort
+  let orderBy;
+  if (body.sort && typeof body.sort === "string") {
+    if (
+      /^(created_at|item_name|sku_code|updated_at|refund_status)( asc| desc)?$/i.test(
+        body.sort,
+      )
+    ) {
+      const [field, direction] = body.sort.split(" ");
+      orderBy = [
+        {
+          [field]: (direction && direction.toLowerCase() === "asc"
+            ? "asc"
+            : "desc") satisfies "asc" | "desc" as "asc" | "desc",
+        },
+      ];
+    } else {
+      orderBy = [
+        { created_at: "desc" satisfies "asc" | "desc" as "asc" | "desc" },
+      ];
+    }
+  } else {
+    orderBy = [
+      { created_at: "desc" satisfies "asc" | "desc" as "asc" | "desc" },
+    ];
+  }
+
+  const [rows, total] = await Promise.all([
     MyGlobal.prisma.shopping_mall_order_items.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy,
       skip,
-      take: Number(limit),
+      take: limit,
+      select: {
+        id: true,
+        shopping_mall_order_id: true,
+        shopping_mall_product_sku_id: true,
+        item_name: true,
+        sku_code: true,
+        quantity: true,
+        unit_price: true,
+        currency: true,
+        item_total: true,
+        refund_status: true,
+        created_at: true,
+        updated_at: true,
+        deleted_at: true,
+      },
     }),
-    MyGlobal.prisma.shopping_mall_order_items.count({ where }),
+    MyGlobal.prisma.shopping_mall_order_items.count({
+      where,
+    }),
   ]);
 
-  // DTO conversion, dates as strings, null/undefined as per DTO
-  const data = items.map((item) => ({
+  const data = rows.map((item) => ({
     id: item.id,
     shopping_mall_order_id: item.shopping_mall_order_id,
-    shopping_mall_product_id: item.shopping_mall_product_id,
-    shopping_mall_product_variant_id:
-      item.shopping_mall_product_variant_id ?? undefined,
-    shopping_mall_seller_id: item.shopping_mall_seller_id,
+    shopping_mall_product_sku_id: item.shopping_mall_product_sku_id,
+    item_name: item.item_name,
+    sku_code: item.sku_code,
     quantity: item.quantity,
     unit_price: item.unit_price,
-    final_price: item.final_price,
-    discount_snapshot: item.discount_snapshot ?? undefined,
-    status: item.status,
+    currency: item.currency,
+    item_total: item.item_total,
+    refund_status: item.refund_status,
     created_at: toISOStringSafe(item.created_at),
     updated_at: toISOStringSafe(item.updated_at),
     deleted_at: item.deleted_at ? toISOStringSafe(item.deleted_at) : undefined,
@@ -79,7 +129,7 @@ export async function patchShoppingMallCustomerOrdersOrderIdItems(props: {
       current: Number(page),
       limit: Number(limit),
       records: total,
-      pages: Math.ceil(total / Number(limit)),
+      pages: limit > 0 ? Math.ceil(total / limit) : 1,
     },
     data,
   };

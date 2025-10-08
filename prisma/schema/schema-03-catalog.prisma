@@ -1,0 +1,422 @@
+/// Represents an individual product for sale in the shopping mall. A product
+/// belongs to a seller and is assigned to a leaf category. Each product can
+/// have multiple SKUs/variants, options, option values, and images. Product
+/// status (active, disabled) is managed here. {@link
+/// shopping_mall_product_skus}, {@link shopping_mall_product_categories},
+/// {@link shopping_mall_catalog_images} support this entity.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_products {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Reference to product's seller. {@link shopping_mall_sellers.id}
+  shopping_mall_seller_id String
+  
+  /// Reference to category this product is assigned to (must be leaf). {@link
+  /// shopping_mall_categories.id}
+  shopping_mall_category_id String
+  
+  /// Product display name.
+  name String
+  
+  /// Long description of the product.
+  description String
+  
+  /// Whether the product is currently active and listed.
+  is_active Boolean
+  
+  /// Primary display image for this product.
+  main_image_url String?
+  
+  /// Record creation timestamp.
+  created_at DateTime
+  
+  /// Record last update timestamp.
+  updated_at DateTime
+  
+  /// Timestamp for soft deletion; null if not deleted.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  seller shopping_mall_sellers @relation(fields: [shopping_mall_seller_id], references: [id], onDelete: Cascade)
+  category shopping_mall_categories @relation(fields: [shopping_mall_category_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_product_skus shopping_mall_product_skus[]
+  shopping_mall_product_options shopping_mall_product_options[]
+  shopping_mall_catalog_images shopping_mall_catalog_images[]
+  shopping_mall_product_categories shopping_mall_product_categories[]
+  shopping_mall_wishlist_items shopping_mall_wishlist_items[]
+  shopping_mall_reviews shopping_mall_reviews[]
+  shopping_mall_product_rating_aggregates shopping_mall_product_rating_aggregates?
+  shopping_mall_admin_action_logs shopping_mall_admin_action_logs[]
+  shopping_mall_moderation_event_logs shopping_mall_moderation_event_logs[]
+  
+  @@unique([shopping_mall_seller_id, name])
+  @@index([shopping_mall_category_id])
+  @@index([is_active])
+}
+
+/// Represents a sellable product variant (SKU) with a unique combination of
+/// option values, price, status, and inventory. SKUs are linked to products
+/// and maintain their own images and inventory records. Options and values
+/// are connected via {@link shopping_mall_product_sku_option_values}.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_product_skus {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Reference to parent product. {@link shopping_mall_products.id}
+  shopping_mall_product_id String
+  
+  /// Business-unique identifier for this SKU (e.g. GTIN, or logical code).
+  sku_code String
+  
+  /// Display name for this SKU (e.g., 'Red L').
+  name String
+  
+  /// Sell price for this SKU.
+  price Float
+  
+  /// SKU status such as 'active', 'inactive', 'blocked', etc.
+  status String
+  
+  /// Custom low-stock warning threshold for this SKU.
+  low_stock_threshold Int?
+  
+  /// Primary SKU image URL, used in option selection.
+  main_image_url String?
+  
+  /// Creation timestamp for SKU record.
+  created_at DateTime
+  
+  /// Last update timestamp for SKU record.
+  updated_at DateTime
+  
+  /// Soft delete timestamp for SKU, if applicable.
+  deleted_at DateTime?
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_products @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_product_sku_option_values shopping_mall_product_sku_option_values[]
+  shopping_mall_catalog_images shopping_mall_catalog_images[]
+  shopping_mall_inventory_records shopping_mall_inventory_records?
+  shopping_mall_cart_items shopping_mall_cart_items[]
+  shopping_mall_order_items shopping_mall_order_items[]
+  
+  @@unique([sku_code])
+  @@unique([shopping_mall_product_id, name])
+  @@index([shopping_mall_product_id])
+  @@index([status])
+}
+
+/// Defines an option/attribute for a product (e.g., color, size). Each
+/// option belongs to a product and can have multiple values. Used to
+/// generate variant combinations. {@link
+/// shopping_mall_product_option_values} reference this.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_product_options {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent product for this option. {@link shopping_mall_products.id}
+  shopping_mall_product_id String
+  
+  /// Option display name (e.g. 'Color').
+  name String
+  
+  /// Ordering of options for presentation.
+  display_order Int
+  
+  /// Created time for option.
+  created_at DateTime
+  
+  /// Last updated time for option.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_products @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_product_option_values shopping_mall_product_option_values[]
+  
+  @@unique([shopping_mall_product_id, name])
+  @@index([shopping_mall_product_id])
+}
+
+/// Lists available values for a given product option. (e.g., 'Red', 'XL' for
+/// Color and Size). Tied to one parent option. Used in SKU-option mapping.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_product_option_values {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Parent option for this value. {@link shopping_mall_product_options.id}
+  shopping_mall_product_option_id String
+  
+  /// Display value for this option (e.g., 'Red').
+  value String
+  
+  /// Ordering among sibling values for UI.
+  display_order Int
+  
+  /// Created time for value.
+  created_at DateTime
+  
+  /// Updated time for value.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  option shopping_mall_product_options @relation(fields: [shopping_mall_product_option_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_product_sku_option_values shopping_mall_product_sku_option_values[]
+  
+  @@unique([shopping_mall_product_option_id, value], map: "shopping_mall_product_option_values_shopping_mall_prod_15d9d1cc")
+  @@index([shopping_mall_product_option_id], map: "shopping_mall_product_option_values_shopping_mall_prod_1b39d7f0")
+}
+
+/// Junction table mapping a SKU to its chosen option values (e.g., SKU1 =
+/// Red, Size L). Supports M:N between SKUs and option values. Each row
+/// uniquely defines a SKU's configuration for one option.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_product_sku_option_values {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// The owning SKU. {@link shopping_mall_product_skus.id}
+  shopping_mall_product_sku_id String
+  
+  /// The selected option value linked to this SKU. {@link
+  /// shopping_mall_product_option_values.id}
+  shopping_mall_product_option_value_id String
+  
+  /// Mapping creation timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  sku shopping_mall_product_skus @relation(fields: [shopping_mall_product_sku_id], references: [id], onDelete: Cascade)
+  optionValue shopping_mall_product_option_values @relation(fields: [shopping_mall_product_option_value_id], references: [id], onDelete: Cascade)
+  
+  @@unique([shopping_mall_product_sku_id, shopping_mall_product_option_value_id], map: "shopping_mall_product_sku_option_values_shopping_mall__6b8e00a3")
+  @@index([shopping_mall_product_sku_id], map: "shopping_mall_product_sku_option_values_shopping_mall__3a23cd94")
+  @@index([shopping_mall_product_option_value_id], map: "shopping_mall_product_sku_option_values_shopping_mall__1bc6299f")
+}
+
+/// Images for products or product SKUs. Each image links either to a product
+/// or SKU. Used for catalog/gallery display. Images are uploaded and managed
+/// only through parent product/SKU.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_catalog_images {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Product this image belongs to. {@link shopping_mall_products.id}
+  shopping_mall_product_id String?
+  
+  /// SKU this image belongs to, if applicable. {@link
+  /// shopping_mall_product_skus.id}
+  shopping_mall_product_sku_id String?
+  
+  /// Image CDN URL.
+  url String
+  
+  /// Alternative text for the image, for accessibility.
+  alt_text String?
+  
+  /// Order for gallery sorting.
+  display_order Int
+  
+  /// Upload timestamp.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_products? @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  sku shopping_mall_product_skus? @relation(fields: [shopping_mall_product_sku_id], references: [id], onDelete: Cascade)
+  
+  @@unique([url])
+  @@index([shopping_mall_product_id])
+  @@index([shopping_mall_product_sku_id])
+}
+
+/// Links a product to a category. Used to normalize product-category
+/// assignment and support many-to-one or future expansion (e.g.
+/// multi-category products). Each link references a single product and a
+/// single category (leaf). Admin control propagates via category.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_product_categories {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// Linked product. {@link shopping_mall_products.id}
+  shopping_mall_product_id String
+  
+  /// Linked category (must be a leaf category). {@link
+  /// shopping_mall_categories.id}
+  shopping_mall_category_id String
+  
+  /// Time of assignment.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  product shopping_mall_products @relation(fields: [shopping_mall_product_id], references: [id], onDelete: Cascade)
+  category shopping_mall_categories @relation(fields: [shopping_mall_category_id], references: [id], onDelete: Cascade)
+  
+  @@unique([shopping_mall_product_id, shopping_mall_category_id], map: "shopping_mall_product_categories_shopping_mall_product_b5030199")
+  @@index([shopping_mall_category_id])
+}
+
+/// Tracks SKU-level inventory state, including quantities available,
+/// reserved, and sold. Supports custom low-stock threshold per SKU. Each
+/// inventory record belongs to a SKU, and is updated as stock moves between
+/// states (available, reserved, sold, blocked, out_of_stock). Linked to the
+/// SKU and product. Used for stock display and order validation.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_inventory_records {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// SKU whose inventory is being tracked. {@link
+  /// shopping_mall_product_skus.id}
+  shopping_mall_product_sku_id String
+  
+  /// Inventory available for sale.
+  quantity_available Int
+  
+  /// Quantity reserved (e.g. pending orders).
+  quantity_reserved Int
+  
+  /// Cumulative quantity sold for reporting.
+  quantity_sold Int
+  
+  /// Low stock notification threshold.
+  low_stock_threshold Int?
+  
+  /// Inventory status such as 'in_stock', 'reserved', 'blocked',
+  /// 'out_of_stock'.
+  status String
+  
+  /// Inventory record creation timestamp.
+  created_at DateTime
+  
+  /// Last update timestamp for record.
+  updated_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  sku shopping_mall_product_skus @relation(fields: [shopping_mall_product_sku_id], references: [id], onDelete: Cascade)
+  
+  shopping_mall_inventory_logs shopping_mall_inventory_logs[]
+  
+  @@unique([shopping_mall_product_sku_id], map: "shopping_mall_inventory_records_shopping_mall_product__aab36528")
+  @@index([status])
+  @@index([quantity_available])
+}
+
+/// Audit trail of inventory adjustments per SKU. Records manual/admin/seller
+/// increases or decreases, related order, actor id (seller or admin),
+/// adjustment quantity/reason, and timestamp. Critical for preventing
+/// out-of-sync state and supporting rollback/debugging.
+///
+/// @namespace Catalog
+/// @author AutoBE - https://github.com/wrtnlabs/autobe
+model shopping_mall_inventory_logs {
+  //----
+  // COLUMNS
+  //----
+  /// Primary Key.
+  id String @id
+  
+  /// The inventory record this log pertains to. {@link
+  /// shopping_mall_inventory_records.id}
+  shopping_mall_inventory_record_id String
+  
+  /// The seller who performed the inventory change (if applicable). {@link
+  /// shopping_mall_sellers.id}
+  shopping_mall_seller_id String?
+  
+  /// The admin who performed the inventory change (if applicable). {@link
+  /// shopping_mall_admins.id}
+  shopping_mall_admin_id String?
+  
+  /// Type of inventory change (increase, decrease, block, unblock, correction,
+  /// etc.).
+  change_type String
+  
+  /// Quantity changed in this log entry (+/-).
+  quantity_changed Int
+  
+  /// Reason for the adjustment (manual, purchase, refund, system correction,
+  /// etc.).
+  reason String?
+  
+  /// Optional reference to related order/event (e.g. order id).
+  reference_id String?
+  
+  /// Timestamp when log was recorded.
+  created_at DateTime
+  
+  //----
+  // RELATIONS
+  //----
+  inventoryRecord shopping_mall_inventory_records @relation(fields: [shopping_mall_inventory_record_id], references: [id], onDelete: Cascade)
+  seller shopping_mall_sellers? @relation(fields: [shopping_mall_seller_id], references: [id], onDelete: Cascade)
+  admin shopping_mall_admins? @relation(fields: [shopping_mall_admin_id], references: [id], onDelete: Cascade)
+  
+  @@index([shopping_mall_inventory_record_id], map: "shopping_mall_inventory_logs_shopping_mall_inventory_r_4fcb57de")
+  @@index([shopping_mall_seller_id])
+  @@index([shopping_mall_admin_id])
+}

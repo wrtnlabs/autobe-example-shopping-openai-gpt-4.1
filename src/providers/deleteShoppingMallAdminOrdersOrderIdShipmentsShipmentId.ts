@@ -14,53 +14,58 @@ export async function deleteShoppingMallAdminOrdersOrderIdShipmentsShipmentId(pr
   orderId: string & tags.Format<"uuid">;
   shipmentId: string & tags.Format<"uuid">;
 }): Promise<void> {
-  const { shipmentId, orderId, admin } = props;
+  // 1. Look up shipment record and validate existence
+  const shipment =
+    await MyGlobal.prisma.shopping_mall_order_shipments.findUnique({
+      where: {
+        id: props.shipmentId,
+      },
+    });
+  if (!shipment) throw new HttpException("Shipment not found", 404);
+  if (shipment.shopping_mall_order_id !== props.orderId)
+    throw new HttpException("Shipment does not belong to given order", 404);
 
-  // 1. Find the shipment (must exist, not already deleted)
-  const shipment = await MyGlobal.prisma.shopping_mall_shipments.findFirst({
-    where: {
-      id: shipmentId,
-      shopping_mall_order_id: orderId,
-      deleted_at: null,
-    },
-    select: {
-      id: true,
-      status: true,
-    },
-  });
-  if (!shipment) {
-    throw new HttpException("Shipment does not exist or already deleted", 404);
-  }
-
-  // 2. Cut-off: can't delete if shipped/delivered/etc
-  const prohibited = ["shipped", "delivered"];
-  if (prohibited.indexOf(shipment.status) !== -1) {
+  // 2. Business logic: cannot delete if delivered or refunded (the minimal rule is 'delivered'; add 'refunded' if used)
+  // Schema has status: string, dispatched_at, delivered_at -- if delivered_at is set, always delivered.
+  if (
+    shipment.status === "delivered" ||
+    shipment.status === "refunded" ||
+    shipment.delivered_at
+  )
     throw new HttpException(
-      "Cannot delete a shipment that has already been shipped or delivered.",
+      "Cannot delete shipment: already delivered, refunded, or protected for compliance.",
       400,
     );
-  }
 
-  // 3. Set deleted_at (soft delete)
-  const deletedAt: string & tags.Format<"date-time"> = toISOStringSafe(
-    new Date(),
-  );
-  await MyGlobal.prisma.shopping_mall_shipments.update({
-    where: { id: shipmentId },
-    data: { deleted_at: deletedAt },
+  // 3. Hard delete: perform actual deletion
+  await MyGlobal.prisma.shopping_mall_order_shipments.delete({
+    where: {
+      id: props.shipmentId,
+    },
   });
 
-  // 4. Audit compliance log
-  await MyGlobal.prisma.shopping_mall_audit_logs.create({
+  // 4. Audit log in admin action logs
+  const now = toISOStringSafe(new Date());
+  await MyGlobal.prisma.shopping_mall_admin_action_logs.create({
     data: {
       id: v4(),
-      entity_type: "shipment",
-      entity_id: shipmentId,
-      event_type: "delete",
-      actor_id: admin.id,
-      event_result: "success",
-      event_time: deletedAt,
-      created_at: deletedAt,
+      shopping_mall_admin_id: props.admin.id,
+      affected_order_id: props.orderId,
+      affected_customer_id: null,
+      affected_seller_id: null,
+      affected_product_id: null,
+      affected_review_id: null,
+      action_type: "erase_shipment",
+      action_reason: "Permanently deleted order shipment by admin request.",
+      domain: "order_shipment",
+      details_json: JSON.stringify({
+        order_id: props.orderId,
+        shipment_id: props.shipmentId,
+        status: shipment.status,
+        delivered_at: shipment.delivered_at,
+        deleted_at: now,
+      }),
+      created_at: now,
     },
   });
 }

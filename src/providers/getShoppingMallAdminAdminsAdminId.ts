@@ -14,8 +14,22 @@ export async function getShoppingMallAdminAdminsAdminId(props: {
   admin: AdminPayload;
   adminId: string & tags.Format<"uuid">;
 }): Promise<IShoppingMallAdmin> {
-  const admin = await MyGlobal.prisma.shopping_mall_admins.findUnique({
-    where: { id: props.adminId },
+  const admin = await MyGlobal.prisma.shopping_mall_admins.findFirst({
+    where: {
+      id: props.adminId,
+      deleted_at: null,
+    },
+    select: {
+      id: true,
+      email: true,
+      full_name: true,
+      status: true,
+      two_factor_secret: true,
+      last_login_at: true,
+      created_at: true,
+      updated_at: true,
+      deleted_at: true,
+    },
   });
   if (!admin) {
     throw new HttpException("Admin not found", 404);
@@ -23,14 +37,16 @@ export async function getShoppingMallAdminAdminsAdminId(props: {
   return {
     id: admin.id,
     email: admin.email,
-    name: admin.name,
+    full_name: admin.full_name,
     status: admin.status,
-    kyc_status: admin.kyc_status,
+    two_factor_secret: admin.two_factor_secret ?? undefined,
+    last_login_at: admin.last_login_at
+      ? toISOStringSafe(admin.last_login_at)
+      : undefined,
     created_at: toISOStringSafe(admin.created_at),
     updated_at: toISOStringSafe(admin.updated_at),
-    deleted_at:
-      admin.deleted_at === null || admin.deleted_at === undefined
-        ? undefined
-        : toISOStringSafe(admin.deleted_at),
+    deleted_at: admin.deleted_at
+      ? toISOStringSafe(admin.deleted_at)
+      : undefined,
   };
 }

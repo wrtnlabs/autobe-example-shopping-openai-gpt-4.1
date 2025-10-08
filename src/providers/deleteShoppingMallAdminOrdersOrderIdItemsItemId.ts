@@ -14,29 +14,65 @@ export async function deleteShoppingMallAdminOrdersOrderIdItemsItemId(props: {
   orderId: string & tags.Format<"uuid">;
   itemId: string & tags.Format<"uuid">;
 }): Promise<void> {
-  // Fetch the order item, ensure it belongs to the order
+  // 1. Find the order item, ensure it exists and belongs to the order
   const item = await MyGlobal.prisma.shopping_mall_order_items.findFirst({
     where: {
       id: props.itemId,
       shopping_mall_order_id: props.orderId,
+      deleted_at: null,
+    },
+    select: {
+      id: true,
+      refund_status: true,
+      quantity: true,
+      unit_price: true,
+      item_total: true,
+      shopping_mall_order_id: true,
+      shopping_mall_product_sku_id: true,
     },
   });
   if (!item) {
     throw new HttpException("Order item not found", 404);
   }
 
-  // Only allow deletion if the item is not paid, fulfilled, or delivered
-  const status = item.status;
-  if (status === "paid" || status === "fulfilled" || status === "delivered") {
+  // 2. Only allow deletion if not already shipped/delivered/refunded
+  if (item.refund_status !== "none") {
     throw new HttpException(
-      `Cannot delete order item in '${status}' state`,
+      "Order item cannot be deleted after shipment or refund",
       409,
     );
   }
 
-  await MyGlobal.prisma.shopping_mall_order_items.delete({
+  // 3. Soft-delete the order item (set deleted_at) with ISO string
+  const deletedTimestamp = toISOStringSafe(new Date());
+  await MyGlobal.prisma.shopping_mall_order_items.update({
     where: { id: props.itemId },
+    data: {
+      deleted_at: deletedTimestamp,
+    },
   });
 
-  // Optionally log audit here (not implemented)
+  // 4. Recalculate order total after item deletion
+  const remainingItems =
+    await MyGlobal.prisma.shopping_mall_order_items.findMany({
+      where: {
+        shopping_mall_order_id: props.orderId,
+        deleted_at: null,
+      },
+      select: {
+        item_total: true,
+      },
+    });
+  const newOrderTotal = remainingItems.reduce(
+    (acc, cur) => acc + cur.item_total,
+    0,
+  );
+
+  await MyGlobal.prisma.shopping_mall_orders.update({
+    where: { id: props.orderId },
+    data: {
+      order_total: newOrderTotal,
+      updated_at: toISOStringSafe(new Date()),
+    },
+  });
 }

@@ -7,51 +7,53 @@ import { MyGlobal } from "../MyGlobal";
 import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-import { IShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallShipment";
+import { IShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallOrderShipment";
 import { SellerPayload } from "../decorators/payload/SellerPayload";
 
 export async function getShoppingMallSellerOrdersOrderIdShipmentsShipmentId(props: {
   seller: SellerPayload;
   orderId: string & tags.Format<"uuid">;
   shipmentId: string & tags.Format<"uuid">;
-}): Promise<IShoppingMallShipment> {
-  const { seller, orderId, shipmentId } = props;
-  const shipment = await MyGlobal.prisma.shopping_mall_shipments.findFirst({
-    where: {
-      id: shipmentId,
-      shopping_mall_order_id: orderId,
-      shopping_mall_seller_id: seller.id,
-      deleted_at: null,
-    },
-  });
-  if (!shipment) {
+}): Promise<IShoppingMallOrderShipment> {
+  // 1. Find the shipment by ID & parent orderId
+  const shipment =
+    await MyGlobal.prisma.shopping_mall_order_shipments.findUnique({
+      where: { id: props.shipmentId },
+    });
+  if (!shipment || shipment.shopping_mall_order_id !== props.orderId) {
     throw new HttpException("Shipment not found", 404);
   }
+
+  // 2. Find the order & verify seller ownership
+  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
+    where: { id: props.orderId },
+  });
+  if (!order) {
+    throw new HttpException("Order not found", 404);
+  }
+  if (order.shopping_mall_seller_id !== props.seller.id) {
+    throw new HttpException("Forbidden", 403);
+  }
+
+  // 3. Map fields and return shipment info with proper date handling
   return {
     id: shipment.id,
     shopping_mall_order_id: shipment.shopping_mall_order_id,
-    shopping_mall_seller_id: shipment.shopping_mall_seller_id,
-    shipment_code: shipment.shipment_code,
-    external_tracking_number: shipment.external_tracking_number ?? undefined,
+    shipment_number: shipment.shipment_number,
+    carrier: shipment.carrier,
+    tracking_number: shipment.tracking_number ?? null,
     status: shipment.status,
-    carrier: shipment.carrier ?? undefined,
-    requested_at:
-      shipment.requested_at != null
-        ? toISOStringSafe(shipment.requested_at)
-        : undefined,
-    shipped_at:
-      shipment.shipped_at != null
-        ? toISOStringSafe(shipment.shipped_at)
-        : undefined,
-    delivered_at:
-      shipment.delivered_at != null
-        ? toISOStringSafe(shipment.delivered_at)
-        : undefined,
+    dispatched_at: shipment.dispatched_at
+      ? toISOStringSafe(shipment.dispatched_at)
+      : null,
+    delivered_at: shipment.delivered_at
+      ? toISOStringSafe(shipment.delivered_at)
+      : null,
+    remark: shipment.remark ?? null,
     created_at: toISOStringSafe(shipment.created_at),
     updated_at: toISOStringSafe(shipment.updated_at),
-    deleted_at:
-      shipment.deleted_at != null
-        ? toISOStringSafe(shipment.deleted_at)
-        : undefined,
+    deleted_at: shipment.deleted_at
+      ? toISOStringSafe(shipment.deleted_at)
+      : null,
   };
 }

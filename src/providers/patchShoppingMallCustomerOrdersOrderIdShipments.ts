@@ -7,92 +7,141 @@ import { MyGlobal } from "../MyGlobal";
 import { PasswordUtil } from "../utils/PasswordUtil";
 import { toISOStringSafe } from "../utils/toISOStringSafe";
 
-import { IShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallShipment";
-import { IPageIShoppingMallShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageIShoppingMallShipment";
+import { IShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IShoppingMallOrderShipment";
+import { IPageIShoppingMallOrderShipment } from "@ORGANIZATION/PROJECT-api/lib/structures/IPageIShoppingMallOrderShipment";
 import { IPage } from "@ORGANIZATION/PROJECT-api/lib/structures/IPage";
 import { CustomerPayload } from "../decorators/payload/CustomerPayload";
 
 export async function patchShoppingMallCustomerOrdersOrderIdShipments(props: {
   customer: CustomerPayload;
   orderId: string & tags.Format<"uuid">;
-  body: IShoppingMallShipment.IRequest;
-}): Promise<IPageIShoppingMallShipment.ISummary> {
-  // Authorize: ensure the order belongs to this customer
-  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
-    where: { id: props.orderId },
-    select: { shopping_mall_customer_id: true },
+  body: IShoppingMallOrderShipment.IRequest;
+}): Promise<IPageIShoppingMallOrderShipment> {
+  const { customer, orderId, body } = props;
+
+  // Authorization: order must exist and belong to this customer
+  const order = await MyGlobal.prisma.shopping_mall_orders.findFirst({
+    where: {
+      id: orderId,
+      shopping_mall_customer_id: customer.id,
+      deleted_at: null,
+    },
+    select: { id: true },
   });
-  if (!order || order.shopping_mall_customer_id !== props.customer.id) {
-    throw new HttpException("Order not found or access denied", 403);
+  if (!order) {
+    throw new HttpException("Order not found or not accessible", 404);
   }
 
-  // Pagination values
-  const page = props.body.page ?? 1;
-  const limit = props.body.limit ?? 20;
-  const skip = (page - 1) * limit;
+  // Parse and normalize input filters
+  const {
+    status,
+    carrier,
+    tracking_number,
+    created_from,
+    created_to,
+    dispatched_from,
+    dispatched_to,
+    delivered_from,
+    delivered_to,
+    sort_by,
+    sort_order,
+    page,
+    limit,
+  } = body;
+  const take = Math.min(Number(limit ?? 20), 100);
+  const current = Number(page ?? 1);
+  const skip = (current - 1) * take;
 
-  // Filters
+  // Supported sorting fields only
+  const ORDER_FIELDS = ["created_at", "dispatched_at", "delivered_at"];
+  const sortField =
+    typeof sort_by === "string" && ORDER_FIELDS.indexOf(sort_by) !== -1
+      ? sort_by
+      : "created_at";
+  const sortDirection = sort_order === "asc" ? "asc" : "desc";
+
+  // Build where clause for Prisma
   const where = {
-    shopping_mall_order_id: props.orderId,
+    shopping_mall_order_id: orderId,
     deleted_at: null,
-    ...(props.body.status !== undefined && { status: props.body.status }),
-    ...(props.body.shipment_code !== undefined && {
-      shipment_code: props.body.shipment_code,
-    }),
-    ...(props.body.shopping_mall_seller_id !== undefined && {
-      shopping_mall_seller_id: props.body.shopping_mall_seller_id,
-    }),
-    ...(props.body.created_from !== undefined ||
-    props.body.created_to !== undefined
+    ...(status !== undefined && status !== null && { status }),
+    ...(carrier !== undefined && carrier !== null && { carrier }),
+    ...(tracking_number !== undefined &&
+      tracking_number !== null && {
+        tracking_number: { contains: tracking_number },
+      }),
+    ...(created_from !== undefined || created_to !== undefined
       ? {
           created_at: {
-            ...(props.body.created_from !== undefined && {
-              gte: props.body.created_from,
-            }),
-            ...(props.body.created_to !== undefined && {
-              lte: props.body.created_to,
-            }),
+            ...(created_from !== undefined && { gte: created_from }),
+            ...(created_to !== undefined && { lte: created_to }),
+          },
+        }
+      : {}),
+    ...(dispatched_from !== undefined || dispatched_to !== undefined
+      ? {
+          dispatched_at: {
+            ...(dispatched_from !== undefined && { gte: dispatched_from }),
+            ...(dispatched_to !== undefined && { lte: dispatched_to }),
+          },
+        }
+      : {}),
+    ...(delivered_from !== undefined || delivered_to !== undefined
+      ? {
+          delivered_at: {
+            ...(delivered_from !== undefined && { gte: delivered_from }),
+            ...(delivered_to !== undefined && { lte: delivered_to }),
           },
         }
       : {}),
   };
 
+  // Query for rows and total count
   const [rows, total] = await Promise.all([
-    MyGlobal.prisma.shopping_mall_shipments.findMany({
+    MyGlobal.prisma.shopping_mall_order_shipments.findMany({
       where,
-      orderBy: { created_at: "desc" },
+      orderBy: { [sortField]: sortDirection },
       skip,
-      take: limit,
+      take,
     }),
-    MyGlobal.prisma.shopping_mall_shipments.count({ where }),
+    MyGlobal.prisma.shopping_mall_order_shipments.count({ where }),
   ]);
 
+  // Map each record to DTO
   const data = rows.map((row) => ({
     id: row.id,
-    order_id: row.shopping_mall_order_id,
-    seller_id: row.shopping_mall_seller_id,
-    shipment_code: row.shipment_code,
-    external_tracking_number: row.external_tracking_number ?? undefined,
+    shopping_mall_order_id: row.shopping_mall_order_id,
+    shipment_number: row.shipment_number,
+    carrier: row.carrier,
+    tracking_number:
+      row.tracking_number !== null && row.tracking_number !== undefined
+        ? row.tracking_number
+        : undefined,
     status: row.status,
-    carrier: row.carrier ?? undefined,
-    requested_at: row.requested_at
-      ? toISOStringSafe(row.requested_at)
-      : undefined,
-    shipped_at: row.shipped_at ? toISOStringSafe(row.shipped_at) : undefined,
-    delivered_at: row.delivered_at
-      ? toISOStringSafe(row.delivered_at)
-      : undefined,
+    dispatched_at:
+      row.dispatched_at !== null && row.dispatched_at !== undefined
+        ? toISOStringSafe(row.dispatched_at)
+        : undefined,
+    delivered_at:
+      row.delivered_at !== null && row.delivered_at !== undefined
+        ? toISOStringSafe(row.delivered_at)
+        : undefined,
+    remark:
+      row.remark !== null && row.remark !== undefined ? row.remark : undefined,
     created_at: toISOStringSafe(row.created_at),
     updated_at: toISOStringSafe(row.updated_at),
-    deleted_at: row.deleted_at ? toISOStringSafe(row.deleted_at) : undefined,
+    deleted_at:
+      row.deleted_at !== null && row.deleted_at !== undefined
+        ? toISOStringSafe(row.deleted_at)
+        : undefined,
   }));
 
   return {
     pagination: {
-      current: Number(page),
-      limit: Number(limit),
+      current: current,
+      limit: take,
       records: total,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(total / take),
     },
     data,
   };

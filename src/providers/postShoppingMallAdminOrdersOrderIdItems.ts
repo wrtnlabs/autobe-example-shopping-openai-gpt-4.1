@@ -15,115 +15,114 @@ export async function postShoppingMallAdminOrdersOrderIdItems(props: {
   orderId: string & tags.Format<"uuid">;
   body: IShoppingMallOrderItem.ICreate;
 }): Promise<IShoppingMallOrderItem> {
-  const { admin, orderId, body } = props;
-
-  // 1. Check order existence and mutability
-  const order = await MyGlobal.prisma.shopping_mall_orders.findFirst({
-    where: {
-      id: orderId,
-      deleted_at: null,
-    },
-  });
-  if (!order) throw new HttpException("Order not found", 404);
-
-  // Prevent editing if already processed/finalized
-  const finalizedStatuses = [
-    "paid",
-    "in_fulfillment",
-    "shipping",
-    "delivered",
-    "completed",
-    "cancelled",
-    "split",
-  ] as const;
-  if (
-    finalizedStatuses.includes(
-      order.status as (typeof finalizedStatuses)[number],
-    )
-  ) {
-    throw new HttpException("Order cannot be edited in current status", 409);
-  }
-
-  // 2. Check product existence, status, channel match, not deleted/discontinued
-  const product = await MyGlobal.prisma.shopping_mall_products.findFirst({
-    where: {
-      id: body.shopping_mall_product_id,
-      shopping_mall_channel_id: order.shopping_mall_channel_id,
-      status: "active",
-      deleted_at: null,
-    },
-  });
-  if (!product)
-    throw new HttpException(
-      "Product not available or not in this channel",
-      404,
-    );
-
-  // (for now, seller match is not enforced in description)
-
-  // 3. If variant given, check it exists and belongs to the product
-  let variantIdValue: string | null | undefined = undefined;
-  if (body.shopping_mall_product_variant_id != null) {
-    const variant =
-      await MyGlobal.prisma.shopping_mall_product_variants.findFirst({
-        where: {
-          id: body.shopping_mall_product_variant_id,
-          shopping_mall_product_id: product.id,
-          deleted_at: null,
-        },
-      });
-    if (!variant)
-      throw new HttpException(
-        "Product variant not found for this product",
-        404,
-      );
-    variantIdValue = body.shopping_mall_product_variant_id;
-  }
-
-  // 4. Create order item
   const now = toISOStringSafe(new Date());
-  const id = v4();
+
+  const order = await MyGlobal.prisma.shopping_mall_orders.findUnique({
+    where: { id: props.orderId },
+    select: { id: true, status: true, deleted_at: true },
+  });
+  if (!order || order.deleted_at) {
+    throw new HttpException("Order not found", 404);
+  }
+  if (order.status !== "pending" && order.status !== "processing") {
+    throw new HttpException(
+      "Order cannot be modified in its current status",
+      400,
+    );
+  }
+  if (props.body.shopping_mall_order_id !== props.orderId) {
+    throw new HttpException(
+      "shopping_mall_order_id does not match path orderId",
+      400,
+    );
+  }
+  const existingItem =
+    await MyGlobal.prisma.shopping_mall_order_items.findFirst({
+      where: {
+        shopping_mall_order_id: props.orderId,
+        shopping_mall_product_sku_id: props.body.shopping_mall_product_sku_id,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+  if (existingItem) {
+    throw new HttpException("SKU already exists in this order", 409);
+  }
+  const sku = await MyGlobal.prisma.shopping_mall_product_skus.findUnique({
+    where: { id: props.body.shopping_mall_product_sku_id },
+    select: { id: true, status: true, deleted_at: true },
+  });
+  if (!sku || sku.deleted_at || sku.status !== "active") {
+    throw new HttpException("Specified SKU not available.", 400);
+  }
+  const inventory =
+    await MyGlobal.prisma.shopping_mall_inventory_records.findUnique({
+      where: {
+        shopping_mall_product_sku_id: props.body.shopping_mall_product_sku_id,
+      },
+      select: { quantity_available: true },
+    });
+  if (!inventory || inventory.quantity_available < props.body.quantity) {
+    throw new HttpException("Insufficient inventory.", 409);
+  }
+  const itemId = v4() as string & tags.Format<"uuid">;
   const created = await MyGlobal.prisma.shopping_mall_order_items.create({
     data: {
-      id: id,
-      shopping_mall_order_id: orderId,
-      shopping_mall_product_id: product.id,
-      shopping_mall_product_variant_id: variantIdValue ?? undefined,
-      shopping_mall_seller_id: body.shopping_mall_seller_id,
-      quantity: body.quantity,
-      unit_price: body.unit_price,
-      final_price: body.final_price,
-      discount_snapshot: body.discount_snapshot ?? undefined,
-      status: body.status,
+      id: itemId,
+      shopping_mall_order_id: props.body.shopping_mall_order_id,
+      shopping_mall_product_sku_id: props.body.shopping_mall_product_sku_id,
+      item_name: props.body.item_name,
+      sku_code: props.body.sku_code,
+      quantity: props.body.quantity,
+      unit_price: props.body.unit_price,
+      currency: props.body.currency,
+      item_total: props.body.item_total,
+      refund_status: "none",
       created_at: now,
       updated_at: now,
       deleted_at: null,
     },
   });
-
-  // 5. Return API DTO-compliant object, all values as strings, no Date, correct null/undefined for optionals
+  await MyGlobal.prisma.shopping_mall_orders.update({
+    where: { id: props.orderId },
+    data: {
+      order_total: { increment: props.body.item_total },
+      updated_at: now,
+    },
+  });
+  await MyGlobal.prisma.shopping_mall_inventory_records.update({
+    where: {
+      shopping_mall_product_sku_id: props.body.shopping_mall_product_sku_id,
+    },
+    data: {
+      quantity_available: { decrement: props.body.quantity },
+      updated_at: now,
+    },
+  });
+  await MyGlobal.prisma.shopping_mall_admin_action_logs.create({
+    data: {
+      id: v4() as string & tags.Format<"uuid">,
+      shopping_mall_admin_id: props.admin.id,
+      affected_order_id: props.orderId,
+      action_type: "add_order_item",
+      action_reason: `Admin added order item SKU ${props.body.shopping_mall_product_sku_id}`,
+      domain: "order",
+      created_at: now,
+    },
+  });
   return {
     id: created.id,
     shopping_mall_order_id: created.shopping_mall_order_id,
-    shopping_mall_product_id: created.shopping_mall_product_id,
-    shopping_mall_product_variant_id:
-      created.shopping_mall_product_variant_id === null
-        ? undefined
-        : created.shopping_mall_product_variant_id,
-    shopping_mall_seller_id: created.shopping_mall_seller_id,
+    shopping_mall_product_sku_id: created.shopping_mall_product_sku_id,
+    item_name: created.item_name,
+    sku_code: created.sku_code,
     quantity: created.quantity,
     unit_price: created.unit_price,
-    final_price: created.final_price,
-    discount_snapshot:
-      created.discount_snapshot === null
-        ? undefined
-        : created.discount_snapshot,
-    status: created.status,
+    currency: created.currency,
+    item_total: created.item_total,
+    refund_status: created.refund_status,
     created_at: toISOStringSafe(created.created_at),
     updated_at: toISOStringSafe(created.updated_at),
-    deleted_at:
-      created.deleted_at === null || created.deleted_at === undefined
-        ? undefined
-        : toISOStringSafe(created.deleted_at),
+    deleted_at: created.deleted_at ? toISOStringSafe(created.deleted_at) : null,
   };
 }
